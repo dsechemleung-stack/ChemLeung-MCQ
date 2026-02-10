@@ -1,0 +1,4576 @@
+
+
+// ========== combine-code.js ==========
+
+import fs from 'fs';
+import path from 'path';
+
+function getAllFiles(dirPath, arrayOfFiles = []) {
+  try {
+    const files = fs.readdirSync(dirPath);
+    console.log(`Scanning: ${dirPath}`);
+
+    files.forEach(file => {
+      const filePath = path.join(dirPath, file);
+
+      if (fs.statSync(filePath).isDirectory()) {
+        if (!file.match(/node_modules|\.git|dist|build/)) {
+          arrayOfFiles = getAllFiles(filePath, arrayOfFiles);
+        }
+      } else {
+        if (file.match(/\.(js|ts|jsx|tsx)$/)) {
+          console.log(`Found: ${filePath}`);
+          arrayOfFiles.push(filePath);
+        }
+      }
+    });
+  } catch (error) {
+    console.error(`Error: ${error.message}`);
+  }
+  return arrayOfFiles;
+}
+
+console.log('Starting...\n');
+
+const allFiles = getAllFiles('./');
+
+console.log(`\nFound ${allFiles.length} files\n`);
+
+if (allFiles.length === 0) {
+  console.log('No JS files found!');
+  process.exit(1);
+}
+
+let combinedCode = '';
+
+allFiles.forEach(file => {
+  combinedCode += `\n\n// ========== ${file} ==========\n\n`;
+  combinedCode += fs.readFileSync(file, 'utf8');
+});
+
+fs.writeFileSync('combined-code.txt', combinedCode);
+
+console.log('\nSuccess!');
+console.log(`Created: combined-code.txt`);
+console.log(`Total files: ${allFiles.length}`);
+console.log(`Total size: ${combinedCode.length} characters`);
+
+
+// ========== eslint.config.js ==========
+
+import js from '@eslint/js'
+import globals from 'globals'
+import reactHooks from 'eslint-plugin-react-hooks'
+import reactRefresh from 'eslint-plugin-react-refresh'
+import { defineConfig, globalIgnores } from 'eslint/config'
+
+export default defineConfig([
+  globalIgnores(['dist']),
+  {
+    files: ['**/*.{js,jsx}'],
+    extends: [
+      js.configs.recommended,
+      reactHooks.configs.flat.recommended,
+      reactRefresh.configs.vite,
+    ],
+    languageOptions: {
+      ecmaVersion: 2020,
+      globals: globals.browser,
+      parserOptions: {
+        ecmaVersion: 'latest',
+        ecmaFeatures: { jsx: true },
+        sourceType: 'module',
+      },
+    },
+    rules: {
+      'no-unused-vars': ['error', { varsIgnorePattern: '^[A-Z_]' }],
+    },
+  },
+])
+
+
+// ========== simple-test.js ==========
+
+console.log('Script started!');
+console.log('Current directory:', process.cwd());
+console.log('Script finished!');
+
+// ========== src/App_Final.jsx ==========
+
+import React from 'react';
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { AuthProvider } from './contexts/AuthContext';
+import PrivateRoute from './components/PrivateRoute';
+import Header from './components/Header';
+import LoginPage from './pages/LoginPage';
+import RegisterPage from './pages/RegisterPage';
+import DashboardPage from './pages/DashboardPage_Fixed';
+import TopicSelectionPage from './pages/TopicSelectionPage_Updated';
+import QuizPage from './pages/QuizPage';
+import ResultsPage from './pages/ResultsPage_Updated_Fixed';
+import LeaderboardPage from './pages/LeaderboardPage';
+import ProfilePage from './pages/ProfilePage';
+import HistoryPage from './pages/HistoryPage_Fixed';
+import FirebaseTestPage from './pages/FirebaseTestPage';
+import DebugDashboard from './pages/DebugDashboard';
+import { useQuizData } from './hooks/useQuizData';
+import { Beaker } from 'lucide-react';
+
+const SHEET_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTK36yaUN-NMCkQNT-DAHgc6FMZPjUc0Yv3nYEK4TA9W2qE9V1TqVD10Tq98-wXQoAvKOZlwGWRSDkU/pub?gid=1182550140&single=true&output=csv';
+
+function AppContent() {
+  const { questions, loading, error } = useQuizData(SHEET_URL);
+
+  if (loading) {
+    return (
+      <div className="flex h-screen items-center justify-center">
+        <Beaker className="animate-bounce text-lab-blue w-12 h-12" />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex h-screen items-center justify-center">
+        <div className="text-center">
+          <p className="text-red-500 font-bold mb-2">Error loading questions</p>
+          <p className="text-slate-600">{error}</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <>
+      <Header />
+      <div className="container mx-auto px-4 py-6">
+        <Routes>
+          {/* Public Routes */}
+          <Route path="/login" element={<LoginPage />} />
+          <Route path="/register" element={<RegisterPage />} />
+
+          {/* Protected Routes */}
+          <Route
+            path="/dashboard"
+            element={
+              <PrivateRoute>
+                <DashboardPage />
+              </PrivateRoute>
+            }
+          />
+          <Route
+            path="/"
+            element={
+              <PrivateRoute>
+                <TopicSelectionPage questions={questions} />
+              </PrivateRoute>
+            }
+          />
+          <Route
+            path="/quiz"
+            element={
+              <PrivateRoute>
+                <QuizPage />
+              </PrivateRoute>
+            }
+          />
+          <Route
+            path="/results"
+            element={
+              <PrivateRoute>
+                <ResultsPage />
+              </PrivateRoute>
+            }
+          />
+          <Route
+            path="/leaderboard"
+            element={
+              <PrivateRoute>
+                <LeaderboardPage />
+              </PrivateRoute>
+            }
+          />
+          <Route
+            path="/profile"
+            element={
+              <PrivateRoute>
+                <ProfilePage />
+              </PrivateRoute>
+            }
+          />
+          <Route
+            path="/history"
+            element={
+              <PrivateRoute>
+                <HistoryPage />
+              </PrivateRoute>
+            }
+          />
+          {/* Firebase Test Page - for debugging */}
+          <Route
+            path="/test-firebase"
+            element={
+              <PrivateRoute>
+                <FirebaseTestPage />
+              </PrivateRoute>
+            }
+          />
+          {/* Debug Dashboard - comprehensive diagnostics */}
+          <Route
+            path="/debug"
+            element={
+              <PrivateRoute>
+                <DebugDashboard />
+              </PrivateRoute>
+            }
+          />
+
+          {/* Catch all - redirect to dashboard */}
+          <Route path="*" element={<Navigate to="/dashboard" replace />} />
+        </Routes>
+      </div>
+    </>
+  );
+}
+
+export default function App() {
+  return (
+    <AuthProvider>
+      <Router>
+        <div className="min-h-screen bg-slate-50">
+          <AppContent />
+        </div>
+      </Router>
+    </AuthProvider>
+  );
+}
+
+// ========== src/components/FilterScreen.jsx ==========
+
+import React, { useState, useMemo } from 'react';
+import { Settings, Play, Check, Filter } from 'lucide-react';
+
+export default function FilterScreen({ questions, onStart }) {
+  const [selectedTopics, setSelectedTopics] = useState([]);
+  const [selectedSubtopics, setSelectedSubtopics] = useState([]);
+  const [count, setCount] = useState(10);
+
+  // 1. Sort Topics numerically/alphabetically
+  const topics = useMemo(() => {
+    return [...new Set(questions.map(q => q.Topic))]
+      .filter(t => t && t !== "Uncategorized")
+      .sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
+  }, [questions]);
+
+  // 2. Derive available subtopics based on ALL selected topics
+  const availableSubtopics = useMemo(() => {
+    if (selectedTopics.length === 0) return [];
+    return [...new Set(questions
+      .filter(q => selectedTopics.includes(q.Topic))
+      .map(q => q.Subtopic))]
+      .filter(Boolean)
+      .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  }, [selectedTopics, questions]);
+
+  const toggleTopic = (topic) => {
+    setSelectedTopics(prev => 
+      prev.includes(topic) ? prev.filter(t => t !== topic) : [...prev, topic]
+    );
+    // Reset subtopics that no longer belong to selected topics
+    setSelectedSubtopics([]);
+  };
+
+  // NEW: Select all topics at once
+  const selectAllTopics = () => {
+    if (selectedTopics.length === topics.length) {
+      // If all are selected, deselect all
+      setSelectedTopics([]);
+      setSelectedSubtopics([]);
+    } else {
+      // Select all topics
+      setSelectedTopics([...topics]);
+      setSelectedSubtopics([]);
+    }
+  };
+
+  const toggleSubtopic = (sub) => {
+    setSelectedSubtopics(prev => 
+      prev.includes(sub) ? prev.filter(s => s !== sub) : [...prev, sub]
+    );
+  };
+
+  const handleStart = () => {
+    // Filter pool based on multiple selections
+    let pool = questions.filter(q => selectedTopics.includes(q.Topic));
+    
+    if (selectedSubtopics.length > 0) {
+      pool = pool.filter(q => selectedSubtopics.includes(q.Subtopic));
+    }
+    
+    const shuffled = [...pool].sort(() => 0.5 - Math.random());
+    const finalSelection = count === 'All' ? shuffled : shuffled.slice(0, parseInt(count));
+    
+    if (finalSelection.length === 0) {
+      alert("No questions found for this selection. Try broader filters!");
+      return;
+    }
+    onStart(finalSelection);
+  };
+
+  const allTopicsSelected = selectedTopics.length === topics.length;
+
+  return (
+    <div className="max-w-4xl mx-auto space-y-6 animate-in fade-in duration-500">
+      <div className="bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden">
+        <div className="bg-slate-50 p-6 border-b flex justify-between items-center">
+          <h2 className="text-xl font-bold flex items-center gap-2 text-slate-800">
+            <Filter size={20} className="text-lab-blue" />
+            Configure Custom Session
+          </h2>
+          <span className="text-xs font-bold text-slate-400 bg-slate-200 px-2 py-1 rounded">
+            {questions.length} Questions Loaded
+          </span>
+        </div>
+
+        <div className="p-8 space-y-8">
+          {/* 1. Multi-Topic Selection */}
+          <div>
+            <div className="flex justify-between items-center mb-4">
+              <label className="block text-sm font-black text-slate-500 uppercase tracking-widest">
+                1. Select Topics (Multi-choice)
+              </label>
+              <button
+                onClick={selectAllTopics}
+                className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${
+                  allTopicsSelected
+                    ? 'bg-lab-blue text-white hover:bg-blue-800'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200 border border-slate-300'
+                }`}
+              >
+                {allTopicsSelected ? '✓ All Selected' : 'Select All Topics'}
+              </button>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+              {topics.map(topic => (
+                <button
+                  key={topic}
+                  onClick={() => toggleTopic(topic)}
+                  className={`flex items-center justify-between p-3 rounded-xl border-2 transition-all ${
+                    selectedTopics.includes(topic)
+                    ? 'border-lab-blue bg-blue-50 text-lab-blue shadow-sm'
+                    : 'border-slate-100 text-slate-600 hover:border-slate-200'
+                  }`}
+                >
+                  <span className="text-sm font-semibold">{topic}</span>
+                  {selectedTopics.includes(topic) && <Check size={16} />}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* 2. Multi-Subtopic Selection */}
+          {selectedTopics.length > 0 && availableSubtopics.length > 0 && (
+            <div className="animate-in slide-in-from-top-4">
+              <label className="block text-sm font-black text-slate-500 mb-4 uppercase tracking-widest">
+                2. Focus on Subtopics
+              </label>
+              <div className="flex flex-wrap gap-2">
+                {availableSubtopics.map(sub => (
+                  <button
+                    key={sub}
+                    onClick={() => toggleSubtopic(sub)}
+                    className={`px-4 py-2 rounded-full text-xs font-bold border-2 transition-all ${
+                      selectedSubtopics.includes(sub)
+                      ? 'bg-lab-blue border-lab-blue text-white'
+                      : 'bg-white border-slate-200 text-slate-500 hover:border-slate-300'
+                    }`}
+                  >
+                    {sub}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* 3. Question Count */}
+          <div>
+            <label className="block text-sm font-black text-slate-500 mb-4 uppercase tracking-widest">
+              3. Session Length
+            </label>
+            <div className="grid grid-cols-3 md:grid-cols-6 gap-3">
+              {['5', '10', '15', '20', '36', 'All'].map(num => (
+                <button
+                  key={num}
+                  onClick={() => setCount(num)}
+                  className={`py-3 rounded-xl border-2 font-bold transition-all ${
+                    count === num ? 'border-lab-blue bg-blue-50 text-lab-blue' : 'border-slate-100 text-slate-400'
+                  }`}
+                >
+                  {num}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <button 
+            disabled={selectedTopics.length === 0}
+            onClick={handleStart}
+            className="w-full py-5 bg-lab-blue text-white rounded-2xl font-black text-lg shadow-lg hover:bg-blue-800 disabled:bg-slate-200 transition-all flex items-center justify-center gap-2 active:scale-95"
+          >
+            <Play fill="currentColor" size={18} />
+            GENERATE EXAM
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ========== src/components/Header.jsx ==========
+
+import React, { useState } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
+import { useAuth } from '../contexts/AuthContext';
+import { Beaker, Home, Trophy, User, LogOut, History, ChevronDown, Settings } from 'lucide-react';
+
+export default function Header() {
+  const { currentUser, logout } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const [showUserMenu, setShowUserMenu] = useState(false);
+
+  // Don't show header on login/register pages
+  if (location.pathname === '/login' || location.pathname === '/register') {
+    return null;
+  }
+
+  async function handleLogout() {
+    try {
+      await logout();
+      navigate('/login');
+    } catch (error) {
+      console.error('Failed to log out:', error);
+    }
+  }
+
+  const isActive = (path) => location.pathname === path;
+
+  return (
+    <header className="bg-white border-b-2 border-slate-200 shadow-sm sticky top-0 z-40">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="flex justify-between items-center h-16">
+          {/* Logo and Brand */}
+          <div className="flex items-center gap-3 cursor-pointer" onClick={() => navigate('/dashboard')}>
+            <div className="bg-lab-blue p-2 rounded-lg">
+              <Beaker className="text-white" size={24} />
+            </div>
+            <div>
+              <h1 className="text-xl font-black text-lab-blue leading-tight">
+                ChemLeung
+              </h1>
+              <p className="text-[10px] text-slate-500 font-semibold -mt-1">
+                HKDSE MCQ Practice Platform
+              </p>
+            </div>
+          </div>
+
+          {/* Navigation Links */}
+          {currentUser && (
+            <nav className="hidden md:flex items-center gap-2">
+              <button
+                onClick={() => navigate('/dashboard')}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg font-semibold transition-all ${
+                  isActive('/dashboard')
+                    ? 'bg-lab-blue text-white'
+                    : 'text-slate-600 hover:bg-slate-100'
+                }`}
+              >
+                <Home size={18} />
+                <span>Dashboard</span>
+              </button>
+
+              <button
+                onClick={() => navigate('/')}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg font-semibold transition-all ${
+                  isActive('/') || isActive('/quiz')
+                    ? 'bg-chemistry-green text-white'
+                    : 'text-slate-600 hover:bg-slate-100'
+                }`}
+              >
+                <Beaker size={18} />
+                <span>Practice</span>
+              </button>
+
+              <button
+                onClick={() => navigate('/leaderboard')}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg font-semibold transition-all ${
+                  isActive('/leaderboard')
+                    ? 'bg-amber-500 text-white'
+                    : 'text-slate-600 hover:bg-slate-100'
+                }`}
+              >
+                <Trophy size={18} />
+                <span>Leaderboard</span>
+              </button>
+
+              <button
+                onClick={() => navigate('/history')}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg font-semibold transition-all ${
+                  isActive('/history')
+                    ? 'bg-purple-500 text-white'
+                    : 'text-slate-600 hover:bg-slate-100'
+                }`}
+              >
+                <History size={18} />
+                <span>History</span>
+              </button>
+            </nav>
+          )}
+
+          {/* User Menu */}
+          {currentUser && (
+            <div className="relative">
+              <button
+                onClick={() => setShowUserMenu(!showUserMenu)}
+                className="flex items-center gap-3 px-4 py-2 rounded-lg hover:bg-slate-100 transition-all"
+              >
+                <div className="w-8 h-8 bg-lab-blue rounded-full flex items-center justify-center">
+                  <span className="text-white font-bold text-sm">
+                    {currentUser.displayName?.charAt(0).toUpperCase() || 'U'}
+                  </span>
+                </div>
+                <div className="hidden sm:block text-left">
+                  <p className="text-sm font-bold text-slate-800">
+                    {currentUser.displayName || 'User'}
+                  </p>
+                  <p className="text-xs text-slate-500">
+                    {currentUser.email}
+                  </p>
+                </div>
+                <ChevronDown size={16} className="text-slate-400" />
+              </button>
+
+              {/* Dropdown Menu */}
+              {showUserMenu && (
+                <>
+                  <div
+                    className="fixed inset-0 z-40"
+                    onClick={() => setShowUserMenu(false)}
+                  />
+                  <div className="absolute right-0 mt-2 w-56 bg-white rounded-xl shadow-xl border-2 border-slate-200 z-50 overflow-hidden">
+                    <button
+                      onClick={() => {
+                        navigate('/profile');
+                        setShowUserMenu(false);
+                      }}
+                      className="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-50 transition-all text-left"
+                    >
+                      <User size={18} className="text-slate-600" />
+                      <span className="font-semibold text-slate-700">Profile Settings</span>
+                    </button>
+
+                    <button
+                      onClick={() => {
+                        navigate('/history');
+                        setShowUserMenu(false);
+                      }}
+                      className="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-50 transition-all text-left border-t border-slate-100"
+                    >
+                      <History size={18} className="text-slate-600" />
+                      <span className="font-semibold text-slate-700">My History</span>
+                    </button>
+
+                    <button
+                      onClick={handleLogout}
+                      className="w-full flex items-center gap-3 px-4 py-3 hover:bg-red-50 transition-all text-left border-t border-slate-100"
+                    >
+                      <LogOut size={18} className="text-red-600" />
+                      <span className="font-semibold text-red-600">Logout</span>
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </header>
+  );
+}
+
+// ========== src/components/PrivateRoute.jsx ==========
+
+import React from 'react';
+import { Navigate } from 'react-router-dom';
+import { useAuth } from '../contexts/AuthContext';
+
+export default function PrivateRoute({ children }) {
+  const { currentUser } = useAuth();
+  
+  return currentUser ? children : <Navigate to="/login" />;
+}
+
+// ========== src/components/QuestionCard.jsx ==========
+
+import React from 'react';
+import { HelpCircle } from 'lucide-react';
+
+export default function QuestionCard({ question, selectedOption, onSelect }) {
+  // If no question is passed, or if the question object is empty, show nothing.
+  if (!question || !question.Question) {
+    return (
+      <div className="p-8 text-center bg-white rounded-2xl border-2 border-dashed border-slate-200">
+        <p className="text-slate-400 font-medium">Loading question content...</p>
+      </div>
+    );
+  }
+
+  // We use the keys defined in our useQuizData.js mapping
+  const options = [
+    { key: 'A', text: question.OptionA },
+    { key: 'B', text: question.OptionB },
+    { key: 'C', text: question.OptionC },
+    { key: 'D', text: question.OptionD },
+  ];
+
+  // NEW: Toggle answer - if clicking the same answer again, deselect it
+  const handleOptionClick = (optionKey) => {
+    if (selectedOption === optionKey) {
+      // Clicking the same answer again deselects it
+      onSelect(null);
+    } else {
+      // Select the new answer
+      onSelect(optionKey);
+    }
+  };
+
+  return (
+    <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden transition-all animate-in fade-in slide-in-from-bottom-4 duration-500">
+      
+      {/* Header Info Bar */}
+      <div className="bg-slate-50 px-6 py-3 border-b border-slate-100 flex justify-between items-center">
+        <div className="flex flex-col">
+          <span className="text-[10px] font-black text-lab-blue uppercase tracking-tighter">
+            {question.Topic || 'General Chemistry'}
+          </span>
+          <span className="text-xs text-slate-500 font-medium italic">
+            {question.Subtopic}
+          </span>
+        </div>
+        {question.DSEcode && (
+          <span className="bg-blue-100 text-lab-blue px-2 py-1 rounded text-[10px] font-bold">
+            {question.DSEcode}
+          </span>
+        )}
+      </div>
+
+      <div className="p-6 md:p-8">
+        {/* Image Display Logic */}
+        {question.Pictureurl && (
+          <div className="mb-8 flex justify-center bg-white p-4 rounded-xl border border-slate-50 shadow-inner">
+            <img 
+              src={question.Pictureurl} 
+              alt="Chemistry Diagram" 
+              className="max-w-full h-auto max-h-[300px] object-contain rounded-md"
+              onError={(e) => {
+                console.warn("Image load failed for URL:", question.Pictureurl);
+                e.target.parentElement.style.display = 'none';
+              }}
+            />
+          </div>
+        )}
+
+        {/* Question Text - UPDATED with whitespace-pre-wrap for line breaks */}
+        <div className="mb-8">
+          <div 
+            className="text-lg md:text-xl font-semibold leading-relaxed text-slate-800 prose prose-slate max-w-none whitespace-pre-wrap"
+            dangerouslySetInnerHTML={{ __html: question.Question }}
+          />
+        </div>
+
+        {/* MCQ Options Grid */}
+        <div className="grid grid-cols-1 gap-3">
+          {options.map((opt) => (
+            <button
+              key={opt.key}
+              onClick={() => handleOptionClick(opt.key)}
+              className={`group flex items-center text-left p-4 rounded-xl border-2 transition-all duration-200 ${
+                selectedOption === opt.key
+                  ? 'border-lab-blue bg-blue-50/50 ring-1 ring-lab-blue'
+                  : 'border-slate-100 hover:border-slate-300 hover:bg-slate-50'
+              }`}
+            >
+              {/* Option Letter Bubble */}
+              <div className={`w-10 h-10 flex-shrink-0 flex items-center justify-center rounded-lg font-bold mr-4 transition-colors ${
+                selectedOption === opt.key
+                  ? 'bg-lab-blue text-white'
+                  : 'bg-slate-100 text-slate-500 group-hover:bg-slate-200'
+              }`}>
+                {opt.key}
+              </div>
+
+              {/* Option Text - UPDATED with whitespace-pre-wrap for line breaks */}
+              <div 
+                className={`text-base md:text-lg whitespace-pre-wrap ${
+                  selectedOption === opt.key ? 'text-lab-blue font-medium' : 'text-slate-700'
+                }`}
+                dangerouslySetInnerHTML={{ __html: opt.text }}
+              />
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Footer Instruction */}
+      <div className="px-6 py-4 bg-slate-50/50 border-t border-slate-100 flex items-center gap-2">
+        <HelpCircle size={14} className="text-slate-400" />
+        <span className="text-[11px] text-slate-400 font-medium italic">
+          Select the most appropriate answer. Click again to deselect. All chemical equations should be assumed to occur at r.t.p. unless stated otherwise.
+        </span>
+      </div>
+    </div>
+  );
+}
+
+// ========== src/components/QuizEngine.jsx ==========
+
+import React, { useState, useEffect, useRef } from 'react';
+import QuestionCard from './QuestionCard';
+import { ChevronLeft, ChevronRight, Send, Timer, FlaskConical, Flag, Clock, X } from 'lucide-react';
+
+export default function QuizEngine({ questions, onComplete }) {
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [answers, setAnswers] = useState({});
+  const [flagged, setFlagged] = useState(new Set());
+  const [showPeriodicTable, setShowPeriodicTable] = useState(false);
+  const [showQuestionPanel, setShowQuestionPanel] = useState(false);
+  const [timerEnabled, setTimerEnabled] = useState(null);
+  const [questionTimes, setQuestionTimes] = useState({});
+  const [currentQuestionStartTime, setCurrentQuestionStartTime] = useState(null);
+  const [currentTime, setCurrentTime] = useState(Date.now());
+  const [sessionStartTime, setSessionStartTime] = useState(null);
+  const timerInitialized = useRef(false);
+  
+  const currentQuestion = questions[currentIndex];
+  const totalQuestions = questions.length;
+  const progress = ((currentIndex + 1) / totalQuestions) * 100;
+
+  // Timer initialization prompt - only once
+  useEffect(() => {
+    if (timerEnabled === null && !timerInitialized.current) {
+      timerInitialized.current = true;
+      const enableTimer = window.confirm(
+        "Do you want to enable the timer?\n\n" +
+        "The timer will track how long you spend on each question.\n\n" +
+        "Click OK to enable, Cancel to skip."
+      );
+      setTimerEnabled(enableTimer);
+      if (enableTimer) {
+        const now = Date.now();
+        setCurrentQuestionStartTime(now);
+        setSessionStartTime(now);
+      }
+    }
+  }, [timerEnabled]);
+
+  // Live timer update - updates every second
+  useEffect(() => {
+    if (!timerEnabled) return;
+    
+    const interval = setInterval(() => {
+      setCurrentTime(Date.now());
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [timerEnabled]);
+
+  // Start timer when changing questions
+  useEffect(() => {
+    if (timerEnabled && currentQuestion) {
+      setCurrentQuestionStartTime(Date.now());
+    }
+  }, [currentIndex, timerEnabled]);
+
+  // Record time when leaving a question
+  const recordQuestionTime = () => {
+    if (timerEnabled && currentQuestionStartTime) {
+      const timeSpent = Date.now() - currentQuestionStartTime;
+      setQuestionTimes(prev => ({
+        ...prev,
+        [currentQuestion.ID]: (prev[currentQuestion.ID] || 0) + timeSpent
+      }));
+    }
+  };
+
+  const handleOptionSelect = (option) => {
+    setAnswers({
+      ...answers,
+      [currentQuestion.ID]: option
+    });
+  };
+
+  const toggleFlag = () => {
+    const questionId = currentQuestion.ID;
+    setFlagged(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(questionId)) {
+        newSet.delete(questionId);
+      } else {
+        newSet.add(questionId);
+      }
+      return newSet;
+    });
+  };
+
+  const nextQuestion = () => {
+    recordQuestionTime();
+    if (currentIndex < totalQuestions - 1) {
+      setCurrentIndex(currentIndex + 1);
+    }
+  };
+
+  const prevQuestion = () => {
+    recordQuestionTime();
+    if (currentIndex > 0) {
+      setCurrentIndex(currentIndex - 1);
+    }
+  };
+
+  const jumpToQuestion = (index) => {
+    recordQuestionTime();
+    setCurrentIndex(index);
+    setShowQuestionPanel(false);
+  };
+
+  const isLastQuestion = currentIndex === totalQuestions - 1;
+  const allAnswered = Object.keys(answers).length === totalQuestions;
+
+  // Calculate total time spent (accumulated + current question time)
+  const getTotalTimeSpent = () => {
+    const accumulated = Object.values(questionTimes).reduce((sum, time) => sum + time, 0);
+    if (timerEnabled && currentQuestionStartTime) {
+      const currentQuestionTime = currentTime - currentQuestionStartTime;
+      return accumulated + currentQuestionTime;
+    }
+    return accumulated;
+  };
+
+  // Calculate session time
+  const getSessionTime = () => {
+    if (timerEnabled && sessionStartTime) {
+      return currentTime - sessionStartTime;
+    }
+    return 0;
+  };
+
+  const formatTime = (ms) => {
+    const seconds = Math.floor(ms / 1000);
+    const minutes = Math.floor(seconds / 60);
+    const hrs = Math.floor(minutes / 60);
+    if (hrs > 0) {
+      return `${hrs}:${String(minutes % 60).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
+    }
+    return `${minutes}:${String(seconds % 60).padStart(2, '0')}`;
+  };
+
+  // Get question status
+  const getQuestionStatus = (q) => {
+    if (answers[q.ID]) return 'answered';
+    if (flagged.has(q.ID)) return 'flagged';
+    return 'skipped';
+  };
+
+  if (timerEnabled === null) {
+    return (
+      <div className="flex h-screen items-center justify-center">
+        <div className="text-center">
+          <Clock className="animate-pulse text-lab-blue w-12 h-12 mx-auto mb-4" />
+          <p className="text-slate-600">Initializing quiz...</p>
+        </div>
+      </div>
+    );
+  }
+
+  const totalTimeSpent = getTotalTimeSpent();
+  const sessionTime = getSessionTime();
+
+  return (
+    <div className="relative h-screen overflow-hidden">
+      {/* Fixed Left Sidebar */}
+      <div className="fixed left-8 top-32 flex flex-col gap-4 z-30 h-[calc(100vh-10rem)]">
+        {/* Timer Display */}
+        {timerEnabled && (
+          <div className="bg-white rounded-2xl shadow-xl border-2 border-lab-blue p-6 w-48">
+            <div className="text-center">
+              <div className="flex items-center justify-center gap-2 mb-2">
+                <Timer className="text-lab-blue" size={24} />
+                <span className="text-sm font-bold text-slate-600">SESSION TIME</span>
+              </div>
+              <div className="text-4xl font-black text-lab-blue mb-4 font-mono">
+                {formatTime(sessionTime)}
+              </div>
+              <div className="text-xs text-slate-500 border-t pt-2">
+                <div className="flex justify-between mb-1">
+                  <span>Active Time:</span>
+                  <span className="font-bold">{formatTime(totalTimeSpent)}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Periodic Table Button */}
+        <button
+          onClick={() => setShowPeriodicTable(true)}
+          className="flex items-center gap-2 px-6 py-4 bg-purple-600 text-white rounded-xl font-bold hover:bg-purple-700 transition-all shadow-lg hover:scale-105 active:scale-95"
+        >
+          <FlaskConical size={20} />
+          <span>Periodic Table</span>
+        </button>
+
+        {/* Question Panel Button */}
+        <button
+          onClick={() => setShowQuestionPanel(!showQuestionPanel)}
+          className="flex items-center gap-2 px-6 py-4 bg-slate-700 text-white rounded-xl font-bold hover:bg-slate-800 transition-all shadow-lg hover:scale-105 active:scale-95"
+        >
+          <Flag size={20} />
+          <span>Overview</span>
+        </button>
+
+        {/* Spacer to push button to bottom */}
+        <div className="flex-1"></div>
+
+        {/* Previous Button - Left Side - Aligned to bottom */}
+        <button
+          onClick={prevQuestion}
+          disabled={currentIndex === 0}
+          className="flex items-center justify-center w-16 h-16 bg-lab-blue text-white rounded-full font-bold hover:bg-blue-800 disabled:bg-slate-300 disabled:cursor-not-allowed transition-all shadow-lg hover:scale-110 active:scale-95"
+        >
+          <ChevronLeft size={32} />
+        </button>
+      </div>
+
+      {/* Fixed Right Sidebar */}
+      <div className="fixed right-8 top-32 flex flex-col gap-4 z-30 h-[calc(100vh-10rem)]">
+        {/* Flag Button */}
+        <button
+          onClick={toggleFlag}
+          className={`w-16 h-16 rounded-full flex items-center justify-center transition-all shadow-lg hover:scale-110 active:scale-95 ${
+            flagged.has(currentQuestion?.ID)
+              ? 'bg-amber-500 text-white hover:bg-amber-600'
+              : 'bg-white text-amber-500 border-2 border-amber-500 hover:bg-amber-50'
+          }`}
+          title={flagged.has(currentQuestion?.ID) ? 'Unflag Question' : 'Flag Question'}
+        >
+          <Flag size={28} fill={flagged.has(currentQuestion?.ID) ? 'currentColor' : 'none'} />
+        </button>
+
+        {/* Spacer to push button to bottom */}
+        <div className="flex-1"></div>
+
+        {/* Next/Submit Button - Right Side - Aligned to bottom */}
+        {!isLastQuestion ? (
+          <button
+            onClick={nextQuestion}
+            className="flex items-center justify-center w-16 h-16 bg-lab-blue text-white rounded-full font-bold hover:bg-blue-800 transition-all shadow-lg hover:scale-110 active:scale-95"
+          >
+            <ChevronRight size={32} />
+          </button>
+        ) : (
+          <button
+            onClick={() => {
+              recordQuestionTime();
+              onComplete(answers, timerEnabled ? questionTimes : null);
+            }}
+            className={`flex items-center justify-center w-16 h-16 rounded-full font-bold transition-all shadow-lg hover:scale-110 active:scale-95 ${
+              allAnswered 
+                ? 'bg-chemistry-green text-white hover:opacity-90' 
+                : 'bg-slate-300 text-slate-500 cursor-not-allowed'
+            }`}
+            title="Finish & Submit"
+          >
+            <Send size={28} />
+          </button>
+        )}
+      </div>
+
+      {/* Question Overview Panel - Floating Left Sidebar */}
+      {showQuestionPanel && (
+        <>
+          {/* Backdrop - semi-transparent to see content behind */}
+          <div 
+            className="fixed inset-0 z-40"
+            style={{ backgroundColor: 'rgba(0, 0, 0, 0.15)' }}
+            onClick={() => setShowQuestionPanel(false)}
+          />
+          
+          {/* Panel - narrower sidebar on the left */}
+          <div className="fixed left-0 top-0 h-full w-80 bg-white shadow-2xl z-50 overflow-y-auto animate-in slide-in-from-left duration-300">
+            <div className="sticky top-0 bg-white border-b p-6 flex justify-between items-center">
+              <h3 className="text-lg font-bold text-slate-800">Question Overview</h3>
+              <button 
+                onClick={() => setShowQuestionPanel(false)}
+                className="text-slate-400 hover:text-slate-600 p-2 rounded-full hover:bg-slate-100"
+              >
+                <X size={20} />
+              </button>
+            </div>
+            
+            <div className="p-6">
+              <div className="flex flex-col gap-3 mb-6 text-sm">
+                <div className="flex items-center gap-2">
+                  <div className="w-6 h-6 rounded bg-chemistry-green"></div>
+                  <span>Answered ({Object.keys(answers).length})</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="w-6 h-6 rounded bg-amber-500"></div>
+                  <span>Flagged ({flagged.size})</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="w-6 h-6 rounded bg-slate-200"></div>
+                  <span>Skipped ({totalQuestions - Object.keys(answers).length})</span>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-4 gap-3">
+                {questions.map((q, idx) => {
+                  const status = getQuestionStatus(q);
+                  return (
+                    <button
+                      key={q.ID}
+                      onClick={() => jumpToQuestion(idx)}
+                      className={`aspect-square rounded-xl font-bold text-base transition-all border-2 ${
+                        idx === currentIndex
+                          ? 'border-lab-blue ring-2 ring-lab-blue ring-offset-2'
+                          : 'border-transparent'
+                      } ${
+                        status === 'answered'
+                          ? 'bg-chemistry-green text-white hover:opacity-80'
+                          : status === 'flagged'
+                          ? 'bg-amber-500 text-white hover:opacity-80'
+                          : 'bg-slate-200 text-slate-600 hover:bg-slate-300'
+                      }`}
+                    >
+                      {idx + 1}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* Periodic Table Modal */}
+      {showPeriodicTable && (
+        <div 
+          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4"
+          onClick={() => setShowPeriodicTable(false)}
+        >
+          <div 
+            className="bg-white rounded-2xl shadow-2xl max-w-6xl w-full max-h-[90vh] overflow-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="sticky top-0 bg-white border-b p-4 flex justify-between items-center">
+              <h3 className="text-xl font-bold text-slate-800">Periodic Table of Elements</h3>
+              <button 
+                onClick={() => setShowPeriodicTable(false)}
+                className="text-slate-400 hover:text-slate-600 p-2 rounded-full hover:bg-slate-100"
+              >
+                <X size={24} />
+              </button>
+            </div>
+            <div className="p-4">
+              <img 
+                src="https://upload.wikimedia.org/wikipedia/commons/2/2e/Simple_Periodic_Table_Chart-en.svg"
+                alt="Periodic Table"
+                className="w-full h-auto"
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Main Content Area - Centered and compact */}
+      <div className="max-w-5xl mx-auto px-4 py-6 h-full flex flex-col">
+        {/* Progress Header - More Compact */}
+        <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 mb-4">
+          <div className="flex justify-between items-center mb-2">
+            <div className="flex items-baseline gap-3">
+              <span className="text-3xl font-black text-lab-blue">
+                Q{currentIndex + 1}
+              </span>
+              <span className="text-sm font-medium text-slate-500">
+                of {totalQuestions}
+              </span>
+            </div>
+            <span className="text-xl font-bold text-lab-blue">
+              {Math.round(progress)}%
+            </span>
+          </div>
+          <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
+            <div 
+              className="bg-lab-blue h-full transition-all duration-300" 
+              style={{ width: `${progress}%` }}
+            />
+          </div>
+        </div>
+
+        {/* Question Card Component - Takes remaining space */}
+        <div className="flex-1 overflow-y-auto">
+          <QuestionCard 
+            question={currentQuestion}
+            selectedOption={answers[currentQuestion.ID]}
+            onSelect={handleOptionSelect}
+          />
+        </div>
+
+        {/* Mini Progress Dots */}
+        <div className="flex justify-center gap-1 mt-4 py-2">
+          {questions.slice(0, Math.min(30, totalQuestions)).map((_, idx) => (
+            <div 
+              key={idx}
+              className={`w-2 h-2 rounded-full transition-all ${
+                idx === currentIndex ? 'bg-lab-blue w-6' : 
+                answers[questions[idx].ID] ? 'bg-chemistry-green' : 
+                flagged.has(questions[idx].ID) ? 'bg-amber-500' : 'bg-slate-200'
+              }`}
+            />
+          ))}
+          {totalQuestions > 30 && <span className="text-slate-400 text-xs">...</span>}
+        </div>
+
+        {!allAnswered && isLastQuestion && (
+          <p className="text-center text-sm text-amber-600 font-medium mt-2">
+            Please answer all questions before submitting.
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ========== src/components/ResultsSummary.jsx ==========
+
+import React from 'react';
+import { CheckCircle2, XCircle, BarChart3, RotateCcw, Info, Clock } from 'lucide-react';
+
+export default function ResultsSummary({ questions, userAnswers, questionTimes, onRestart }) {
+  // 1. Calculate Score
+  const total = questions.length;
+  const correctCount = questions.reduce((acc, q) => {
+    return acc + (userAnswers[q.ID] === q.CorrectOption ? 1 : 0);
+  }, 0);
+  const percentage = Math.round((correctCount / total) * 100);
+
+  // Format time
+  const formatTime = (ms) => {
+    const seconds = Math.floor(ms / 1000);
+    const minutes = Math.floor(seconds / 60);
+    const hrs = Math.floor(minutes / 60);
+    if (hrs > 0) {
+      return `${hrs}h ${minutes % 60}m ${seconds % 60}s`;
+    } else if (minutes > 0) {
+      return `${minutes}m ${seconds % 60}s`;
+    }
+    return `${seconds}s`;
+  };
+
+  // Calculate total time and average
+  const totalTime = questionTimes 
+    ? Object.values(questionTimes).reduce((sum, time) => sum + time, 0)
+    : null;
+  
+  const averageTimePerQuestion = questionTimes && total > 0
+    ? totalTime / total
+    : null;
+
+  // 2. Strength/Weakness Analysis by Topic
+  const analysis = questions.reduce((acc, q) => {
+    if (!acc[q.Topic]) {
+      acc[q.Topic] = { total: 0, correct: 0 };
+    }
+    acc[q.Topic].total += 1;
+    if (userAnswers[q.ID] === q.CorrectOption) {
+      acc[q.Topic].correct += 1;
+    }
+    return acc;
+  }, {});
+
+  const topicResults = Object.entries(analysis).map(([topic, data]) => ({
+    topic,
+    percent: Math.round((data.correct / data.total) * 100),
+    ...data
+  }));
+
+  const strengths = topicResults.filter(t => t.percent >= 70);
+  const weaknesses = topicResults.filter(t => t.percent < 70);
+
+  return (
+    <div className="space-y-8 animate-in fade-in duration-500">
+      {/* Hero Score Section */}
+      <div className="bg-white rounded-2xl shadow-xl overflow-hidden border border-slate-200">
+        <div className="bg-lab-blue p-8 text-center text-white">
+          <h2 className="text-xl opacity-90 mb-2">Your Performance</h2>
+          <div className="text-6xl font-black mb-2">{percentage}%</div>
+          <p className="text-blue-100">
+            {correctCount} out of {total} questions correct
+          </p>
+          {totalTime && (
+            <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-4 text-blue-100">
+              <div className="bg-blue-700 bg-opacity-50 rounded-lg p-4">
+                <div className="flex items-center justify-center gap-2 mb-1">
+                  <Clock size={18} />
+                  <span className="text-sm font-semibold">Total Time</span>
+                </div>
+                <div className="text-2xl font-bold">{formatTime(totalTime)}</div>
+              </div>
+              <div className="bg-blue-700 bg-opacity-50 rounded-lg p-4">
+                <div className="flex items-center justify-center gap-2 mb-1">
+                  <Clock size={18} />
+                  <span className="text-sm font-semibold">Average per MCQ</span>
+                </div>
+                <div className="text-2xl font-bold">{formatTime(averageTimePerQuestion)}</div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Analytics Grid */}
+        <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-6 bg-slate-50">
+          <div className="bg-white p-4 rounded-xl border border-slate-200">
+            <h3 className="flex items-center gap-2 font-bold text-chemistry-green mb-3">
+              <CheckCircle2 size={18} /> Strengths
+            </h3>
+            {strengths.length > 0 ? (
+              strengths.map(s => (
+                <div key={s.topic} className="text-sm mb-2 flex justify-between">
+                  <span className="truncate mr-2">{s.topic}</span>
+                  <span className="font-bold">{s.percent}%</span>
+                </div>
+              ))
+            ) : <p className="text-sm text-slate-400 italic">Keep practicing to build strengths!</p>}
+          </div>
+
+          <div className="bg-white p-4 rounded-xl border border-slate-200">
+            <h3 className="flex items-center gap-2 font-bold text-amber-600 mb-3">
+              <BarChart3 size={18} /> Needs Focus
+            </h3>
+            {weaknesses.length > 0 ? (
+              weaknesses.map(w => (
+                <div key={w.topic} className="text-sm mb-2 flex justify-between">
+                  <span className="truncate mr-2">{w.topic}</span>
+                  <span className="font-bold text-amber-700">{w.percent}%</span>
+                </div>
+              ))
+            ) : <p className="text-sm text-slate-400 italic">No major weaknesses detected!</p>}
+          </div>
+        </div>
+      </div>
+
+      {/* Detailed Review List */}
+      <div className="space-y-4">
+        <h3 className="text-xl font-bold flex items-center gap-2">
+          <Info className="text-lab-blue" /> Detailed Review
+        </h3>
+        {questions.map((q, index) => {
+          const isCorrect = userAnswers[q.ID] === q.CorrectOption;
+          const timeSpent = questionTimes ? questionTimes[q.ID] : null;
+          
+          return (
+            <div key={q.ID} className={`p-6 rounded-xl border-l-4 bg-white shadow-sm ${isCorrect ? 'border-chemistry-green' : 'border-red-500'}`}>
+              <div className="flex justify-between items-start mb-4">
+                <div>
+                  <span className="text-2xl font-black text-slate-700">Question {index + 1}</span>
+                  {timeSpent && (
+                    <div className="text-sm text-slate-500 flex items-center gap-1 mt-1 bg-slate-100 px-3 py-1 rounded-full inline-flex ml-3">
+                      <Clock size={14} />
+                      <span className="font-semibold">{formatTime(timeSpent)}</span>
+                    </div>
+                  )}
+                </div>
+                {isCorrect ? 
+                  <CheckCircle2 className="text-chemistry-green" size={24} /> : 
+                  <XCircle className="text-red-500" size={24} />
+                }
+              </div>
+              
+              <div className="prose prose-slate max-w-none mb-4 text-lg" dangerouslySetInnerHTML={{ __html: q.Question }} />
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mb-4">
+                <div className={`p-3 rounded-lg text-sm border ${userAnswers[q.ID] === q.CorrectOption ? 'bg-green-50 border-green-200 text-green-800' : 'bg-red-50 border-red-200 text-red-800'}`}>
+                  <strong>Your Answer:</strong> {userAnswers[q.ID] || 'None'}
+                </div>
+                <div className="p-3 rounded-lg bg-blue-50 border border-blue-200 text-blue-800 text-sm">
+                  <strong>Correct Answer:</strong> {q.CorrectOption}
+                </div>
+              </div>
+
+              {q.Explanation && (
+                <div className="mt-4 p-4 bg-slate-100 rounded-lg text-sm border border-slate-200">
+                  <strong className="block mb-2 text-slate-700 flex items-center gap-1">
+                    <Info size={14}/> Explanation:
+                  </strong>
+                  <div dangerouslySetInnerHTML={{ __html: q.Explanation }} className="leading-relaxed text-slate-600" />
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      <button
+        onClick={onRestart}
+        className="w-full py-4 flex items-center justify-center gap-2 bg-carbon-grey text-white rounded-xl font-bold hover:bg-slate-800 transition-all shadow-lg active:scale-[0.98]"
+      >
+        <RotateCcw size={20} />
+        Start New Session
+      </button>
+    </div>
+  );
+}
+
+// ========== src/contexts/AuthContext.jsx ==========
+
+import React, { createContext, useState, useEffect, useContext } from 'react';
+import { 
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  signOut,
+  onAuthStateChanged,
+  updateProfile
+} from 'firebase/auth';
+import { doc, setDoc, getDoc } from 'firebase/firestore';
+import { auth, db } from '../firebase/config';
+
+const AuthContext = createContext();
+
+export function useAuth() {
+  return useContext(AuthContext);
+}
+
+export function AuthProvider({ children }) {
+  const [currentUser, setCurrentUser] = useState(null);
+  const [userProfile, setUserProfile] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  // Register new user
+  async function signup(email, password, displayName) {
+    const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+    
+    // Update profile with display name
+    await updateProfile(userCredential.user, {
+      displayName: displayName
+    });
+
+    // Create user profile in Firestore
+    await setDoc(doc(db, 'users', userCredential.user.uid), {
+      uid: userCredential.user.uid,
+      email: email,
+      displayName: displayName,
+      createdAt: new Date().toISOString(),
+      totalAttempts: 0,
+      totalQuestions: 0,
+      totalCorrect: 0
+    });
+
+    return userCredential;
+  }
+
+  // Login user
+  function login(email, password) {
+    return signInWithEmailAndPassword(auth, email, password);
+  }
+
+  // Logout user
+  function logout() {
+    return signOut(auth);
+  }
+
+  // Load user profile from Firestore
+  async function loadUserProfile(uid) {
+    const docRef = doc(db, 'users', uid);
+    const docSnap = await getDoc(docRef);
+    
+    if (docSnap.exists()) {
+      setUserProfile(docSnap.data());
+    }
+  }
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      setCurrentUser(user);
+      if (user) {
+        await loadUserProfile(user.uid);
+      } else {
+        setUserProfile(null);
+      }
+      setLoading(false);
+    });
+
+    return unsubscribe;
+  }, []);
+
+  const value = {
+    currentUser,
+    userProfile,
+    signup,
+    login,
+    logout,
+    loadUserProfile
+  };
+
+  return (
+    <AuthContext.Provider value={value}>
+      {!loading && children}
+    </AuthContext.Provider>
+  );
+}
+
+
+// ========== src/firebase/config.js ==========
+
+// Firebase configuration and initialization
+import { initializeApp } from 'firebase/app';
+import { getAuth } from 'firebase/auth';
+import { getFirestore } from 'firebase/firestore';
+
+// Your web app's Firebase configuration
+// TODO: Replace with your own Firebase config from Firebase Console
+const firebaseConfig = {
+  apiKey: "AIzaSyBKk_TsWIVQCXfIwPQXnFOXvSNQNDgyvFg",
+  authDomain: "chemleung-hkdse-mcq-platform.firebaseapp.com",
+  projectId: "chemleung-hkdse-mcq-platform",
+  storageBucket: "chemleung-hkdse-mcq-platform.firebasestorage.app",
+  messagingSenderId: "811594644247",
+  appId: "1:811594644247:web:5282c3c73f1d3566955552",
+  measurementId: "G-85R118KESK"
+};
+
+// Initialize Firebase
+const app = initializeApp(firebaseConfig);
+
+// Initialize Firebase services
+export const auth = getAuth(app);
+export const db = getFirestore(app);
+
+export default app;
+
+// ========== src/hooks/useQuizData.js ==========
+
+import { useState, useEffect } from 'react';
+import Papa from 'papaparse';
+
+export function useQuizData(url) {
+  const [questions, setQuestions] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    Papa.parse(url, {
+      download: true,
+      header: true,
+      skipEmptyLines: 'greedy',
+      newline: '',
+      complete: (results) => {
+        try {
+          const formattedData = results.data
+            .filter(row => Object.values(row).join('').trim().length > 0)
+            .map((row, index) => {
+              const getVal = (name) => {
+                const key = Object.keys(row).find(k => k.trim().toLowerCase() === name.toLowerCase());
+                return row[key] ? row[key] : "";
+              };
+
+              // Convert any type of line break to <br>
+              const nl2br = (text) => {
+                if (!text) return "";
+                return text.split(/\r\n|\r|\n/).join('<br>');
+              };
+
+              // Remove option prefix (A. B. C. D.) from the beginning
+              const removePrefix = (text) => {
+                if (!text) return "";
+                // Remove patterns like "A. ", "B. ", "C. ", "D. " from the start
+                return text.replace(/^[A-D]\.\s*/i, '');
+              };
+
+              const rawQuestion = getVal('QuestionText');
+
+              // Image logic
+              const imgRegex = /[\{\(]image:(.*?)[\}\)]/i;
+              const imgMatch = rawQuestion.match(imgRegex);
+              const imageUrl = getVal('Pictureurl') || (imgMatch ? imgMatch[1] : null);
+              const cleanQuestion = rawQuestion.replace(imgRegex, "");
+
+              // CRITICAL FIX: Ensure truly unique IDs
+              // Use the spreadsheet ID if available AND unique, otherwise use index
+              const rawId = getVal('ID');
+              const uniqueId = rawId && rawId.trim() !== "" 
+                ? `${rawId}-${index}` // Combine ID with index for guaranteed uniqueness
+                : `q-${index}`; // Fallback to index-based ID
+
+              return {
+                ID: uniqueId,
+                Topic: getVal('Topic') || "Uncategorized",
+                Subtopic: getVal('Subtopic') || "",
+                Question: nl2br(cleanQuestion),
+                OptionA: nl2br(removePrefix(getVal('OptionA'))),
+                OptionB: nl2br(removePrefix(getVal('OptionB'))),
+                OptionC: nl2br(removePrefix(getVal('OptionC'))),
+                OptionD: nl2br(removePrefix(getVal('OptionD'))),
+                CorrectOption: getVal('CorrectOption').toUpperCase().trim(),
+                Explanation: nl2br(getVal('Explanation')),
+                Pictureurl: imageUrl ? imageUrl.trim() : null,
+                DSEcode: getVal('DSEcode') || getVal('DSECode')
+              };
+            });
+
+          setQuestions(formattedData);
+          setLoading(false);
+        } catch (err) {
+          setError("Failed to process data.");
+          setLoading(false);
+        }
+      }
+    });
+  }, [url]);
+
+  return { questions, loading, error };
+}
+
+// ========== src/main.jsx ==========
+
+import { StrictMode } from 'react'
+import { createRoot } from 'react-dom/client'
+import './index.css'
+import App from './App_Final.jsx'
+
+createRoot(document.getElementById('root')).render(
+  <StrictMode>
+    <App />
+  </StrictMode>,
+)
+
+
+// ========== src/pages/DashboardPage_Fixed.jsx ==========
+
+import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../contexts/AuthContext';
+import { quizService } from '../services/quizService';
+import { Trophy, Clock, Target, TrendingUp, Calendar, LogOut, Play, AlertCircle, RefreshCw } from 'lucide-react';
+
+export default function DashboardPage() {
+  const { currentUser, userProfile, logout } = useAuth();
+  const [attempts, setAttempts] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    loadAttempts();
+  }, [currentUser]);
+
+  async function loadAttempts() {
+    if (!currentUser) {
+      setLoading(false);
+      return;
+    }
+
+    try {
+      setError(null);
+      setLoading(true);
+      
+      console.log('📊 Dashboard: Loading attempts for user:', currentUser.uid);
+      const userAttempts = await quizService.getUserAttempts(currentUser.uid, 10);
+      
+      console.log('📊 Dashboard: Loaded attempts:', userAttempts.length);
+      setAttempts(userAttempts);
+      
+      if (userAttempts.length === 0) {
+        console.log('⚠️ Dashboard: No attempts found in database');
+      }
+    } catch (err) {
+      console.error('❌ Dashboard: Error loading attempts:', err);
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleLogout() {
+    try {
+      await logout();
+      navigate('/login');
+    } catch (error) {
+      console.error('Failed to log out:', error);
+    }
+  }
+
+  const formatDate = (isoString) => {
+    const date = new Date(isoString);
+    return date.toLocaleDateString('en-GB', { 
+      day: '2-digit', 
+      month: 'short', 
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  };
+
+  const formatTime = (ms) => {
+    if (!ms) return 'N/A';
+    const seconds = Math.floor(ms / 1000);
+    const minutes = Math.floor(seconds / 60);
+    const hrs = Math.floor(minutes / 60);
+    if (hrs > 0) {
+      return `${hrs}h ${minutes % 60}m`;
+    } else if (minutes > 0) {
+      return `${minutes}m ${seconds % 60}s`;
+    }
+    return `${seconds}s`;
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-screen">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-lab-blue mx-auto mb-4"></div>
+          <p className="text-slate-600">Loading your dashboard...</p>
+        </div>
+      </div>
+    );
+  }
+
+  const overallAccuracy = userProfile?.totalQuestions > 0
+    ? Math.round((userProfile.totalCorrect / userProfile.totalQuestions) * 100)
+    : 0;
+
+  return (
+    <div className="max-w-6xl mx-auto space-y-6">
+      {/* Header with User Info */}
+      <div className="bg-gradient-to-r from-lab-blue to-blue-700 rounded-2xl shadow-xl p-8 text-white">
+        <div className="flex justify-between items-start">
+          <div>
+            <h1 className="text-3xl font-black mb-2">
+              Welcome back, {currentUser?.displayName}!
+            </h1>
+            <p className="text-blue-100">
+              {currentUser?.email}
+            </p>
+          </div>
+          <button
+            onClick={handleLogout}
+            className="flex items-center gap-2 px-4 py-2 bg-white bg-opacity-20 hover:bg-opacity-30 rounded-lg font-bold transition-all"
+          >
+            <LogOut size={18} />
+            Logout
+          </button>
+        </div>
+
+        {/* Stats Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mt-8">
+          <div className="bg-white bg-opacity-10 backdrop-blur rounded-xl p-4">
+            <div className="flex items-center gap-2 mb-2">
+              <Trophy className="text-yellow-300" size={20} />
+              <span className="text-sm font-semibold text-blue-100">Total Attempts</span>
+            </div>
+            <div className="text-3xl font-black">{userProfile?.totalAttempts || 0}</div>
+          </div>
+
+          <div className="bg-white bg-opacity-10 backdrop-blur rounded-xl p-4">
+            <div className="flex items-center gap-2 mb-2">
+              <Target className="text-green-300" size={20} />
+              <span className="text-sm font-semibold text-blue-100">Overall Accuracy</span>
+            </div>
+            <div className="text-3xl font-black">{overallAccuracy}%</div>
+          </div>
+
+          <div className="bg-white bg-opacity-10 backdrop-blur rounded-xl p-4">
+            <div className="flex items-center gap-2 mb-2">
+              <TrendingUp className="text-purple-300" size={20} />
+              <span className="text-sm font-semibold text-blue-100">Questions Solved</span>
+            </div>
+            <div className="text-3xl font-black">{userProfile?.totalQuestions || 0}</div>
+          </div>
+
+          <div className="bg-white bg-opacity-10 backdrop-blur rounded-xl p-4">
+            <div className="flex items-center gap-2 mb-2">
+              <Calendar className="text-pink-300" size={20} />
+              <span className="text-sm font-semibold text-blue-100">Correct Answers</span>
+            </div>
+            <div className="text-3xl font-black">{userProfile?.totalCorrect || 0}</div>
+          </div>
+        </div>
+      </div>
+
+      {/* Action Buttons */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <button
+          onClick={() => navigate('/')}
+          className="bg-chemistry-green text-white rounded-xl p-6 font-bold text-lg shadow-lg hover:opacity-90 transition-all flex items-center justify-center gap-3 active:scale-95"
+        >
+          <Play fill="currentColor" size={24} />
+          Start New Quiz
+        </button>
+
+        <button
+          onClick={() => navigate('/leaderboard')}
+          className="bg-amber-500 text-white rounded-xl p-6 font-bold text-lg shadow-lg hover:opacity-90 transition-all flex items-center justify-center gap-3 active:scale-95"
+        >
+          <Trophy size={24} />
+          View Leaderboard
+        </button>
+      </div>
+
+      {/* Debug/Error Section */}
+      {error && (
+        <div className="bg-red-50 border-2 border-red-200 rounded-xl p-4">
+          <div className="flex items-start gap-3">
+            <AlertCircle className="text-red-500 flex-shrink-0 mt-1" size={20} />
+            <div className="flex-1">
+              <h3 className="font-bold text-red-900 mb-1">Error Loading Attempts</h3>
+              <p className="text-sm text-red-800 mb-3">{error}</p>
+              <button
+                onClick={loadAttempts}
+                className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg font-semibold hover:bg-red-700 transition-all"
+              >
+                <RefreshCw size={16} />
+                Retry
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Recent Attempts */}
+      <div className="bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden">
+        <div className="bg-slate-50 p-6 border-b flex items-center justify-between">
+          <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
+            <Clock className="text-lab-blue" size={24} />
+            Recent Attempts
+          </h2>
+          <button
+            onClick={loadAttempts}
+            className="text-sm text-lab-blue hover:underline flex items-center gap-1"
+          >
+            <RefreshCw size={14} />
+            Refresh
+          </button>
+        </div>
+
+        <div className="p-6">
+          {attempts.length === 0 ? (
+            <div className="text-center py-12">
+              <AlertCircle className="w-16 h-16 text-slate-300 mx-auto mb-4" />
+              <p className="text-slate-400 text-lg mb-2">No attempts yet!</p>
+              <p className="text-slate-500 text-sm mb-4">
+                Complete a quiz to see your results here
+              </p>
+              <button
+                onClick={() => navigate('/')}
+                className="px-6 py-3 bg-lab-blue text-white rounded-lg font-bold hover:bg-blue-800 transition-all"
+              >
+                Take Your First Quiz
+              </button>
+              <div className="mt-6 pt-6 border-t border-slate-200">
+                <button
+                  onClick={() => navigate('/test-firebase')}
+                  className="text-sm text-purple-600 hover:underline"
+                >
+                  🔧 Data not showing? Click here to debug
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {attempts.map((attempt) => (
+                <div
+                  key={attempt.id}
+                  className="flex items-center justify-between p-4 rounded-xl border-2 border-slate-100 hover:border-lab-blue transition-all"
+                >
+                  <div className="flex items-center gap-4">
+                    <div className={`w-16 h-16 rounded-xl flex items-center justify-center font-black text-2xl ${
+                      attempt.percentage >= 70 
+                        ? 'bg-green-100 text-green-700'
+                        : attempt.percentage >= 50
+                        ? 'bg-yellow-100 text-yellow-700'
+                        : 'bg-red-100 text-red-700'
+                    }`}>
+                      {attempt.percentage}%
+                    </div>
+                    
+                    <div>
+                      <div className="font-bold text-slate-800">
+                        {attempt.correctAnswers}/{attempt.totalQuestions} correct
+                      </div>
+                      <div className="text-sm text-slate-500">
+                        {formatDate(attempt.timestamp)}
+                      </div>
+                      {attempt.topics && (
+                        <div className="text-xs text-slate-400 mt-1">
+                          Topics: {attempt.topics.join(', ')}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {attempt.timeSpent && (
+                    <div className="text-right">
+                      <div className="text-sm font-semibold text-slate-600">
+                        ⏱️ {formatTime(attempt.timeSpent)}
+                      </div>
+                      <div className="text-xs text-slate-400">
+                        Time spent
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Debug Info (only in development) */}
+      <div className="bg-slate-100 border border-slate-300 rounded-lg p-3 text-xs font-mono text-slate-600">
+        <strong>Debug Info:</strong> User ID: {currentUser?.uid} | Profile Attempts: {userProfile?.totalAttempts || 0} | Fetched: {attempts.length}
+      </div>
+    </div>
+  );
+}
+
+// ========== src/pages/DebugDashboard.jsx ==========
+
+import React, { useState, useEffect } from 'react';
+import { useAuth } from '../contexts/AuthContext';
+import { quizService } from '../services/quizService';
+import { collection, getDocs, query, where, orderBy, limit } from 'firebase/firestore';
+import { db } from '../firebase/config';
+import { CheckCircle, XCircle, AlertCircle, Database, RefreshCw } from 'lucide-react';
+
+export default function DebugDashboard() {
+  const { currentUser, userProfile } = useAuth();
+  const [logs, setLogs] = useState([]);
+  const [testing, setTesting] = useState(false);
+  const [rawData, setRawData] = useState(null);
+
+  const addLog = (type, message) => {
+    setLogs(prev => [...prev, { type, message, timestamp: new Date().toLocaleTimeString() }]);
+  };
+
+  async function testEverything() {
+    setLogs([]);
+    setTesting(true);
+    
+    addLog('info', '🔍 Starting comprehensive diagnostics...');
+    
+    // Test 1: Check Authentication
+    addLog('info', '--- TEST 1: Authentication ---');
+    if (currentUser) {
+      addLog('success', `✅ User authenticated: ${currentUser.email}`);
+      addLog('info', `User ID: ${currentUser.uid}`);
+    } else {
+      addLog('error', '❌ No user authenticated');
+      setTesting(false);
+      return;
+    }
+
+    // Test 2: Check User Profile
+    addLog('info', '--- TEST 2: User Profile ---');
+    if (userProfile) {
+      addLog('success', `✅ Profile loaded`);
+      addLog('info', `Display Name: ${userProfile.displayName}`);
+      addLog('info', `Total Attempts: ${userProfile.totalAttempts || 0}`);
+      addLog('info', `Total Questions: ${userProfile.totalQuestions || 0}`);
+      addLog('info', `Total Correct: ${userProfile.totalCorrect || 0}`);
+    } else {
+      addLog('error', '❌ Profile not loaded');
+    }
+
+    // Test 3: Direct Firestore Read - Users Collection
+    addLog('info', '--- TEST 3: Direct Firestore Read (Users) ---');
+    try {
+      const { doc, getDoc } = await import('firebase/firestore');
+      const userDocRef = doc(db, 'users', currentUser.uid);
+      const userDocSnap = await getDoc(userDocRef);
+      
+      if (userDocSnap.exists()) {
+        addLog('success', '✅ User document exists in Firestore');
+        addLog('info', `Data: ${JSON.stringify(userDocSnap.data())}`);
+      } else {
+        addLog('error', '❌ User document does NOT exist in Firestore');
+      }
+    } catch (error) {
+      addLog('error', `❌ Error reading user document: ${error.message}`);
+    }
+
+    // Test 4: Direct Firestore Read - Attempts Collection
+    addLog('info', '--- TEST 4: Direct Firestore Read (Attempts) ---');
+    try {
+      const attemptsQuery = query(
+        collection(db, 'attempts'),
+        where('userId', '==', currentUser.uid),
+        orderBy('timestamp', 'desc'),
+        limit(10)
+      );
+      
+      const querySnapshot = await getDocs(attemptsQuery);
+      addLog('info', `Found ${querySnapshot.size} attempts in Firestore`);
+      
+      if (querySnapshot.size > 0) {
+        addLog('success', `✅ Attempts collection has data`);
+        querySnapshot.forEach((doc) => {
+          const data = doc.data();
+          addLog('info', `Attempt ${doc.id}: ${data.percentage}% - ${data.timestamp}`);
+        });
+      } else {
+        addLog('warning', '⚠️ Attempts collection is EMPTY - no quiz results saved yet');
+      }
+
+      setRawData({ attempts: querySnapshot.size });
+    } catch (error) {
+      addLog('error', `❌ Error reading attempts: ${error.message}`);
+      if (error.code === 'failed-precondition') {
+        addLog('error', '❌ FIRESTORE INDEX MISSING! You need to create an index.');
+        addLog('info', 'Firebase will show a link in the console to create the index automatically.');
+      }
+    }
+
+    // Test 5: Test Save Function
+    addLog('info', '--- TEST 5: Test Save Attempt ---');
+    try {
+      const testAttemptData = {
+        score: 85,
+        totalQuestions: 10,
+        correctAnswers: 8,
+        percentage: 80,
+        topics: ['Test Topic'],
+        timeSpent: 120000,
+        questionTimes: {},
+        answers: {}
+      };
+
+      addLog('info', 'Attempting to save test quiz result...');
+      const attemptId = await quizService.saveAttempt(currentUser.uid, testAttemptData);
+      addLog('success', `✅ Test attempt saved successfully! ID: ${attemptId}`);
+    } catch (error) {
+      addLog('error', `❌ Failed to save test attempt: ${error.message}`);
+      addLog('error', `Error code: ${error.code}`);
+    }
+
+    // Test 6: Test Fetch Function
+    addLog('info', '--- TEST 6: Test Fetch Attempts ---');
+    try {
+      const attempts = await quizService.getUserAttempts(currentUser.uid, 5);
+      addLog('success', `✅ Successfully fetched ${attempts.length} attempts`);
+      if (attempts.length > 0) {
+        attempts.forEach((att, idx) => {
+          addLog('info', `Attempt ${idx + 1}: ${att.percentage}% (${att.correctAnswers}/${att.totalQuestions})`);
+        });
+      }
+    } catch (error) {
+      addLog('error', `❌ Failed to fetch attempts: ${error.message}`);
+    }
+
+    // Test 7: Check Leaderboard
+    addLog('info', '--- TEST 7: Test Leaderboard ---');
+    try {
+      const leaderboard = await quizService.getWeeklyLeaderboard(5);
+      addLog('success', `✅ Leaderboard loaded with ${leaderboard.length} users`);
+    } catch (error) {
+      addLog('error', `❌ Failed to load leaderboard: ${error.message}`);
+    }
+
+    addLog('info', '✅ Diagnostics complete!');
+    setTesting(false);
+  }
+
+  async function createTestAttempt() {
+    if (!currentUser) {
+      addLog('error', '❌ Must be logged in');
+      return;
+    }
+
+    addLog('info', 'Creating test quiz attempt...');
+    
+    try {
+      const testAttemptData = {
+        score: Math.floor(Math.random() * 40) + 60, // Random 60-100
+        totalQuestions: 10,
+        correctAnswers: Math.floor(Math.random() * 4) + 6, // Random 6-10
+        percentage: Math.floor(Math.random() * 40) + 60,
+        topics: ['Organic Chemistry', 'Acids and Bases'],
+        timeSpent: Math.floor(Math.random() * 300000) + 60000, // Random 1-6 min
+        questionTimes: {},
+        answers: {}
+      };
+
+      const attemptId = await quizService.saveAttempt(currentUser.uid, testAttemptData);
+      addLog('success', `✅ Test attempt created! ID: ${attemptId}`);
+      addLog('info', 'Now check Dashboard and History pages to see if it appears');
+    } catch (error) {
+      addLog('error', `❌ Failed to create test attempt: ${error.message}`);
+    }
+  }
+
+  const getLogIcon = (type) => {
+    switch (type) {
+      case 'success':
+        return <CheckCircle className="text-green-500" size={16} />;
+      case 'error':
+        return <XCircle className="text-red-500" size={16} />;
+      case 'warning':
+        return <AlertCircle className="text-amber-500" size={16} />;
+      default:
+        return <Database className="text-blue-500" size={16} />;
+    }
+  };
+
+  return (
+    <div className="max-w-6xl mx-auto space-y-6">
+      <div className="bg-gradient-to-r from-red-600 to-orange-600 rounded-2xl shadow-xl p-6 text-white">
+        <h1 className="text-3xl font-black flex items-center gap-3">
+          <Database size={32} />
+          Firebase Debug Dashboard
+        </h1>
+        <p className="text-orange-100 mt-1">
+          Comprehensive diagnostics for data saving issues
+        </p>
+      </div>
+
+      {/* Quick Actions */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <button
+          onClick={testEverything}
+          disabled={testing}
+          className="py-6 bg-lab-blue text-white rounded-xl font-bold text-lg shadow-lg hover:bg-blue-800 disabled:bg-slate-300 transition-all flex items-center justify-center gap-2"
+        >
+          {testing ? (
+            <>
+              <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
+              Running Tests...
+            </>
+          ) : (
+            <>
+              <RefreshCw size={20} />
+              Run Full Diagnostics
+            </>
+          )}
+        </button>
+
+        <button
+          onClick={createTestAttempt}
+          className="py-6 bg-chemistry-green text-white rounded-xl font-bold text-lg shadow-lg hover:opacity-90 transition-all flex items-center justify-center gap-2"
+        >
+          <Database size={20} />
+          Create Test Quiz Attempt
+        </button>
+      </div>
+
+      {/* Console Output */}
+      <div className="bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden">
+        <div className="bg-slate-800 p-4 border-b">
+          <h2 className="text-lg font-bold text-white font-mono flex items-center gap-2">
+            <Database size={20} />
+            Console Output
+          </h2>
+        </div>
+
+        <div className="p-4 bg-slate-900 max-h-[600px] overflow-y-auto">
+          {logs.length === 0 ? (
+            <p className="text-slate-500 text-center py-8 font-mono">
+              Click "Run Full Diagnostics" to start testing...
+            </p>
+          ) : (
+            <div className="space-y-2 font-mono text-sm">
+              {logs.map((log, idx) => (
+                <div
+                  key={idx}
+                  className={`flex items-start gap-3 p-2 rounded ${
+                    log.type === 'error' ? 'bg-red-900/20' :
+                    log.type === 'success' ? 'bg-green-900/20' :
+                    log.type === 'warning' ? 'bg-amber-900/20' :
+                    'bg-slate-800'
+                  }`}
+                >
+                  {getLogIcon(log.type)}
+                  <span className="text-slate-400 text-xs">[{log.timestamp}]</span>
+                  <span className={
+                    log.type === 'error' ? 'text-red-400' :
+                    log.type === 'success' ? 'text-green-400' :
+                    log.type === 'warning' ? 'text-amber-400' :
+                    'text-blue-400'
+                  }>
+                    {log.message}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Instructions */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="bg-blue-50 border-2 border-blue-200 rounded-xl p-4">
+          <h3 className="font-bold text-blue-900 mb-2 flex items-center gap-2">
+            <CheckCircle size={18} />
+            What Success Looks Like
+          </h3>
+          <ul className="text-sm text-blue-800 space-y-1">
+            <li>✅ User authenticated</li>
+            <li>✅ Profile loaded</li>
+            <li>✅ User document exists</li>
+            <li>✅ Can read attempts collection</li>
+            <li>✅ Can save test attempt</li>
+            <li>✅ Can fetch attempts</li>
+            <li>✅ Leaderboard loads</li>
+          </ul>
+        </div>
+
+        <div className="bg-red-50 border-2 border-red-200 rounded-xl p-4">
+          <h3 className="font-bold text-red-900 mb-2 flex items-center gap-2">
+            <XCircle size={18} />
+            Common Errors & Fixes
+          </h3>
+          <ul className="text-sm text-red-800 space-y-2">
+            <li><strong>Permission denied:</strong> Update Firestore rules</li>
+            <li><strong>Failed precondition:</strong> Missing Firestore index</li>
+            <li><strong>Not authenticated:</strong> Log in first</li>
+            <li><strong>Empty attempts:</strong> Complete a quiz first</li>
+          </ul>
+        </div>
+      </div>
+
+      {/* Firestore Rules Reminder */}
+      <div className="bg-amber-50 border-2 border-amber-200 rounded-xl p-4">
+        <h3 className="font-bold text-amber-900 mb-2">📋 Required Firestore Rules</h3>
+        <pre className="bg-slate-900 text-green-400 p-4 rounded-lg overflow-x-auto text-xs">
+{`rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /users/{userId} {
+      allow read: if true;
+      allow write: if request.auth != null && request.auth.uid == userId;
+    }
+    
+    match /attempts/{attemptId} {
+      allow read: if true;
+      allow create: if request.auth != null;
+      allow update, delete: if request.auth != null && resource.data.userId == request.auth.uid;
+    }
+  }
+}`}
+        </pre>
+        <p className="text-sm text-amber-800 mt-2">
+          Copy this to Firebase Console → Firestore Database → Rules tab → Publish
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// ========== src/pages/FirebaseTestPage.jsx ==========
+
+import React, { useState } from 'react';
+import { useAuth } from '../contexts/AuthContext';
+import { quizService } from '../services/quizService';
+import { CheckCircle, XCircle, AlertCircle } from 'lucide-react';
+
+export default function FirebaseTestPage() {
+  const { currentUser, userProfile } = useAuth();
+  const [testResults, setTestResults] = useState({});
+  const [testing, setTesting] = useState(false);
+
+  async function runTests() {
+    setTesting(true);
+    const results = {};
+
+    // Test 1: Check if user is authenticated
+    results.auth = {
+      status: currentUser ? 'success' : 'error',
+      message: currentUser 
+        ? `✅ Authenticated as ${currentUser.email}` 
+        : '❌ Not authenticated'
+    };
+
+    // Test 2: Check if user profile exists
+    results.profile = {
+      status: userProfile ? 'success' : 'error',
+      message: userProfile 
+        ? `✅ Profile loaded (${userProfile.totalAttempts} attempts)` 
+        : '❌ Profile not found'
+    };
+
+    // Test 3: Try to save a test attempt
+    if (currentUser) {
+      try {
+        const testAttempt = {
+          score: 75,
+          totalQuestions: 10,
+          correctAnswers: 7,
+          percentage: 70,
+          topics: ['Test Topic'],
+          timeSpent: 120000,
+          questionTimes: {},
+          answers: {}
+        };
+
+        const attemptId = await quizService.saveAttempt(currentUser.uid, testAttempt);
+        results.saveAttempt = {
+          status: 'success',
+          message: `✅ Test attempt saved! ID: ${attemptId}`
+        };
+      } catch (error) {
+        results.saveAttempt = {
+          status: 'error',
+          message: `❌ Failed to save attempt: ${error.message}`
+        };
+      }
+    } else {
+      results.saveAttempt = {
+        status: 'warning',
+        message: '⚠️ Skipped - not authenticated'
+      };
+    }
+
+    // Test 4: Try to fetch user attempts
+    if (currentUser) {
+      try {
+        const attempts = await quizService.getUserAttempts(currentUser.uid, 5);
+        results.fetchAttempts = {
+          status: 'success',
+          message: `✅ Fetched ${attempts.length} attempts`
+        };
+      } catch (error) {
+        results.fetchAttempts = {
+          status: 'error',
+          message: `❌ Failed to fetch attempts: ${error.message}`
+        };
+      }
+    } else {
+      results.fetchAttempts = {
+        status: 'warning',
+        message: '⚠️ Skipped - not authenticated'
+      };
+    }
+
+    // Test 5: Check leaderboard
+    try {
+      const leaderboard = await quizService.getWeeklyLeaderboard(5);
+      results.leaderboard = {
+        status: 'success',
+        message: `✅ Leaderboard loaded (${leaderboard.length} users)`
+      };
+    } catch (error) {
+      results.leaderboard = {
+        status: 'error',
+        message: `❌ Failed to load leaderboard: ${error.message}`
+      };
+    }
+
+    setTestResults(results);
+    setTesting(false);
+  }
+
+  const getIcon = (status) => {
+    switch (status) {
+      case 'success':
+        return <CheckCircle className="text-green-500" size={24} />;
+      case 'error':
+        return <XCircle className="text-red-500" size={24} />;
+      case 'warning':
+        return <AlertCircle className="text-amber-500" size={24} />;
+      default:
+        return null;
+    }
+  };
+
+  return (
+    <div className="max-w-4xl mx-auto space-y-6">
+      <div className="bg-gradient-to-r from-purple-600 to-blue-600 rounded-2xl shadow-xl p-6 text-white">
+        <h1 className="text-3xl font-black">Firebase Connection Test</h1>
+        <p className="text-purple-100 mt-1">
+          Diagnose data saving issues
+        </p>
+      </div>
+
+      <div className="bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden">
+        <div className="p-6">
+          <button
+            onClick={runTests}
+            disabled={testing}
+            className="w-full py-4 bg-lab-blue text-white rounded-xl font-bold text-lg shadow-lg hover:bg-blue-800 disabled:bg-slate-300 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2"
+          >
+            {testing ? (
+              <>
+                <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
+                Running Tests...
+              </>
+            ) : (
+              'Run Firebase Tests'
+            )}
+          </button>
+        </div>
+
+        {Object.keys(testResults).length > 0 && (
+          <div className="border-t border-slate-200 p-6 space-y-4">
+            <h2 className="text-xl font-bold text-slate-800 mb-4">Test Results</h2>
+            
+            {Object.entries(testResults).map(([test, result]) => (
+              <div
+                key={test}
+                className="flex items-start gap-4 p-4 rounded-lg border-2 border-slate-100"
+              >
+                {getIcon(result.status)}
+                <div className="flex-1">
+                  <div className="font-bold text-slate-800 capitalize mb-1">
+                    {test.replace(/([A-Z])/g, ' $1').trim()}
+                  </div>
+                  <div className="text-sm text-slate-600">
+                    {result.message}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="bg-blue-50 border-2 border-blue-200 rounded-xl p-4">
+        <h3 className="font-bold text-blue-900 mb-2">💡 How to interpret results:</h3>
+        <ul className="text-sm text-blue-800 space-y-1">
+          <li><strong>Auth:</strong> Should show your email if logged in</li>
+          <li><strong>Profile:</strong> Should load your user data from Firestore</li>
+          <li><strong>Save Attempt:</strong> Should successfully save a test quiz result</li>
+          <li><strong>Fetch Attempts:</strong> Should retrieve your quiz history</li>
+          <li><strong>Leaderboard:</strong> Should load ranking data</li>
+        </ul>
+      </div>
+
+      <div className="bg-red-50 border-2 border-red-200 rounded-xl p-4">
+        <h3 className="font-bold text-red-900 mb-2">🔧 Common Issues:</h3>
+        <ul className="text-sm text-red-800 space-y-2">
+          <li>
+            <strong>❌ Not authenticated:</strong> Make sure you're logged in
+          </li>
+          <li>
+            <strong>❌ Failed to save/fetch:</strong> Check Firebase Firestore rules
+          </li>
+          <li>
+            <strong>❌ Permission denied:</strong> Update Firestore security rules to allow read/write
+          </li>
+        </ul>
+      </div>
+
+      <div className="bg-amber-50 border-2 border-amber-200 rounded-xl p-4">
+        <h3 className="font-bold text-amber-900 mb-2">📋 Recommended Firestore Rules:</h3>
+        <pre className="bg-slate-900 text-green-400 p-4 rounded-lg overflow-x-auto text-xs">
+{`rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Users collection
+    match /users/{userId} {
+      allow read: if true;
+      allow write: if request.auth != null && request.auth.uid == userId;
+    }
+    
+    // Attempts collection
+    match /attempts/{attemptId} {
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
+  }
+}`}
+        </pre>
+      </div>
+    </div>
+  );
+}
+
+// ========== src/pages/HistoryPage_Fixed.jsx ==========
+
+import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../contexts/AuthContext';
+import { quizService } from '../services/quizService';
+import { History, ArrowLeft, Calendar, Clock, Target, TrendingUp, Filter, ChevronDown, Trophy, AlertCircle, RefreshCw } from 'lucide-react';
+
+export default function HistoryPage() {
+  const { currentUser } = useAuth();
+  const navigate = useNavigate();
+  const [attempts, setAttempts] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [filterPeriod, setFilterPeriod] = useState('all'); // all, week, month
+  const [sortBy, setSortBy] = useState('recent'); // recent, score, time
+  const [showFilters, setShowFilters] = useState(false);
+
+  useEffect(() => {
+    loadHistory();
+  }, [currentUser]);
+
+  async function loadHistory() {
+    if (!currentUser) {
+      setLoading(false);
+      return;
+    }
+
+    try {
+      setError(null);
+      setLoading(true);
+      
+      console.log('📜 History: Loading attempts for user:', currentUser.uid);
+      // Load all attempts (no limit for history page)
+      const userAttempts = await quizService.getUserAttempts(currentUser.uid, 100);
+      
+      console.log('📜 History: Loaded attempts:', userAttempts.length);
+      setAttempts(userAttempts);
+      
+      if (userAttempts.length === 0) {
+        console.log('⚠️ History: No attempts found in database');
+      } else {
+        console.log('✅ History: Sample attempt:', userAttempts[0]);
+      }
+    } catch (err) {
+      console.error('❌ History: Error loading attempts:', err);
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const formatDate = (isoString) => {
+    const date = new Date(isoString);
+    return date.toLocaleDateString('en-GB', { 
+      day: '2-digit', 
+      month: 'short', 
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  };
+
+  const formatTime = (ms) => {
+    if (!ms) return 'N/A';
+    const seconds = Math.floor(ms / 1000);
+    const minutes = Math.floor(seconds / 60);
+    const hrs = Math.floor(minutes / 60);
+    if (hrs > 0) {
+      return `${hrs}h ${minutes % 60}m`;
+    } else if (minutes > 0) {
+      return `${minutes}m ${seconds % 60}s`;
+    }
+    return `${seconds}s`;
+  };
+
+  // Filter attempts by time period
+  const getFilteredAttempts = () => {
+    let filtered = [...attempts];
+
+    // Time period filter
+    if (filterPeriod === 'week') {
+      const weekAgo = new Date();
+      weekAgo.setDate(weekAgo.getDate() - 7);
+      filtered = filtered.filter(a => new Date(a.timestamp) >= weekAgo);
+    } else if (filterPeriod === 'month') {
+      const monthAgo = new Date();
+      monthAgo.setMonth(monthAgo.getMonth() - 1);
+      filtered = filtered.filter(a => new Date(a.timestamp) >= monthAgo);
+    }
+
+    // Sort
+    if (sortBy === 'recent') {
+      filtered.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+    } else if (sortBy === 'score') {
+      filtered.sort((a, b) => b.percentage - a.percentage);
+    } else if (sortBy === 'time') {
+      filtered.sort((a, b) => (b.timeSpent || 0) - (a.timeSpent || 0));
+    }
+
+    return filtered;
+  };
+
+  const filteredAttempts = getFilteredAttempts();
+
+  // Calculate statistics
+  const stats = {
+    total: filteredAttempts.length,
+    average: filteredAttempts.length > 0
+      ? Math.round(filteredAttempts.reduce((sum, a) => sum + a.percentage, 0) / filteredAttempts.length)
+      : 0,
+    best: filteredAttempts.length > 0
+      ? Math.max(...filteredAttempts.map(a => a.percentage))
+      : 0,
+    totalTime: filteredAttempts.reduce((sum, a) => sum + (a.timeSpent || 0), 0)
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-screen">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-lab-blue mx-auto mb-4"></div>
+          <p className="text-slate-600">Loading your history...</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="max-w-6xl mx-auto space-y-6">
+      {/* Header */}
+      <div className="flex items-center gap-4">
+        <button
+          onClick={() => navigate('/dashboard')}
+          className="p-3 bg-white rounded-lg border-2 border-slate-200 hover:border-lab-blue transition-all"
+        >
+          <ArrowLeft size={20} />
+        </button>
+        
+        <div className="flex-1 bg-gradient-to-r from-purple-600 to-purple-800 rounded-2xl shadow-xl p-6 text-white">
+          <h1 className="text-3xl font-black flex items-center gap-3">
+            <History size={32} />
+            Practice History
+          </h1>
+          <p className="text-purple-100 mt-1">
+            Review your past attempts and track your progress
+          </p>
+        </div>
+      </div>
+
+      {/* Error Display */}
+      {error && (
+        <div className="bg-red-50 border-2 border-red-200 rounded-xl p-4">
+          <div className="flex items-start gap-3">
+            <AlertCircle className="text-red-500 flex-shrink-0 mt-1" size={20} />
+            <div className="flex-1">
+              <h3 className="font-bold text-red-900 mb-1">Error Loading History</h3>
+              <p className="text-sm text-red-800 mb-3">{error}</p>
+              <button
+                onClick={loadHistory}
+                className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg font-semibold hover:bg-red-700 transition-all"
+              >
+                <RefreshCw size={16} />
+                Retry
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Statistics Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div className="bg-white rounded-xl shadow-lg border-2 border-slate-200 p-4">
+          <div className="flex items-center gap-2 mb-2">
+            <Target className="text-lab-blue" size={20} />
+            <span className="text-sm font-semibold text-slate-600">Total Attempts</span>
+          </div>
+          <div className="text-3xl font-black text-lab-blue">{stats.total}</div>
+        </div>
+
+        <div className="bg-white rounded-xl shadow-lg border-2 border-slate-200 p-4">
+          <div className="flex items-center gap-2 mb-2">
+            <TrendingUp className="text-chemistry-green" size={20} />
+            <span className="text-sm font-semibold text-slate-600">Average Score</span>
+          </div>
+          <div className="text-3xl font-black text-chemistry-green">{stats.average}%</div>
+        </div>
+
+        <div className="bg-white rounded-xl shadow-lg border-2 border-slate-200 p-4">
+          <div className="flex items-center gap-2 mb-2">
+            <Trophy className="text-amber-500" size={20} />
+            <span className="text-sm font-semibold text-slate-600">Best Score</span>
+          </div>
+          <div className="text-3xl font-black text-amber-500">{stats.best}%</div>
+        </div>
+
+        <div className="bg-white rounded-xl shadow-lg border-2 border-slate-200 p-4">
+          <div className="flex items-center gap-2 mb-2">
+            <Clock className="text-purple-600" size={20} />
+            <span className="text-sm font-semibold text-slate-600">Total Time</span>
+          </div>
+          <div className="text-3xl font-black text-purple-600">{formatTime(stats.totalTime)}</div>
+        </div>
+      </div>
+
+      {/* Filters */}
+      <div className="bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden">
+        <button
+          onClick={() => setShowFilters(!showFilters)}
+          className="w-full flex items-center justify-between p-4 hover:bg-slate-50 transition-all"
+        >
+          <div className="flex items-center gap-2">
+            <Filter className="text-lab-blue" size={20} />
+            <span className="font-bold text-slate-800">Filters & Sorting</span>
+          </div>
+          <ChevronDown 
+            size={20} 
+            className={`text-slate-400 transition-transform ${showFilters ? 'rotate-180' : ''}`}
+          />
+        </button>
+
+        {showFilters && (
+          <div className="p-4 border-t border-slate-200 bg-slate-50">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Time Period Filter */}
+              <div>
+                <label className="block text-sm font-bold text-slate-700 mb-2">Time Period</label>
+                <div className="grid grid-cols-3 gap-2">
+                  {[
+                    { value: 'all', label: 'All Time' },
+                    { value: 'month', label: 'Last Month' },
+                    { value: 'week', label: 'Last Week' }
+                  ].map(option => (
+                    <button
+                      key={option.value}
+                      onClick={() => setFilterPeriod(option.value)}
+                      className={`py-2 rounded-lg font-semibold text-sm transition-all ${
+                        filterPeriod === option.value
+                          ? 'bg-lab-blue text-white'
+                          : 'bg-white text-slate-600 hover:bg-slate-100 border-2 border-slate-200'
+                      }`}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Sort By */}
+              <div>
+                <label className="block text-sm font-bold text-slate-700 mb-2">Sort By</label>
+                <div className="grid grid-cols-3 gap-2">
+                  {[
+                    { value: 'recent', label: 'Recent' },
+                    { value: 'score', label: 'Score' },
+                    { value: 'time', label: 'Time' }
+                  ].map(option => (
+                    <button
+                      key={option.value}
+                      onClick={() => setSortBy(option.value)}
+                      className={`py-2 rounded-lg font-semibold text-sm transition-all ${
+                        sortBy === option.value
+                          ? 'bg-chemistry-green text-white'
+                          : 'bg-white text-slate-600 hover:bg-slate-100 border-2 border-slate-200'
+                      }`}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Attempts List */}
+      <div className="bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden">
+        <div className="bg-slate-50 p-4 border-b flex items-center justify-between">
+          <h2 className="text-lg font-bold text-slate-800">
+            Your Attempts ({filteredAttempts.length})
+          </h2>
+          <button
+            onClick={loadHistory}
+            className="text-sm text-lab-blue hover:underline flex items-center gap-1"
+          >
+            <RefreshCw size={14} />
+            Refresh
+          </button>
+        </div>
+
+        <div className="p-6">
+          {filteredAttempts.length === 0 ? (
+            <div className="text-center py-12">
+              <History className="w-16 h-16 text-slate-300 mx-auto mb-4" />
+              <p className="text-slate-400 text-lg mb-2">No attempts found</p>
+              <p className="text-slate-500 text-sm mb-4">
+                {filterPeriod !== 'all' 
+                  ? 'Try changing the filter period' 
+                  : 'Start practicing to see your history!'}
+              </p>
+              {attempts.length === 0 && (
+                <div className="mt-6 space-y-3">
+                  <button
+                    onClick={() => navigate('/')}
+                    className="px-6 py-3 bg-lab-blue text-white rounded-lg font-bold hover:bg-blue-800 transition-all"
+                  >
+                    Take Your First Quiz
+                  </button>
+                  <div className="pt-3 border-t border-slate-200 mx-auto max-w-xs">
+                    <button
+                      onClick={() => navigate('/test-firebase')}
+                      className="text-sm text-purple-600 hover:underline"
+                    >
+                      🔧 Data not showing? Click here to debug
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {filteredAttempts.map((attempt, index) => (
+                <div
+                  key={attempt.id}
+                  className="flex items-center justify-between p-4 rounded-xl border-2 border-slate-100 hover:border-lab-blue transition-all hover:shadow-md"
+                >
+                  <div className="flex items-center gap-4 flex-1">
+                    {/* Rank Number */}
+                    <div className="w-10 h-10 rounded-lg bg-slate-100 flex items-center justify-center font-black text-slate-600">
+                      #{index + 1}
+                    </div>
+
+                    {/* Score Badge */}
+                    <div className={`w-16 h-16 rounded-xl flex items-center justify-center font-black text-2xl ${
+                      attempt.percentage >= 70 
+                        ? 'bg-green-100 text-green-700'
+                        : attempt.percentage >= 50
+                        ? 'bg-yellow-100 text-yellow-700'
+                        : 'bg-red-100 text-red-700'
+                    }`}>
+                      {attempt.percentage}%
+                    </div>
+                    
+                    <div className="flex-1">
+                      <div className="font-bold text-slate-800 text-lg">
+                        {attempt.correctAnswers}/{attempt.totalQuestions} correct
+                      </div>
+                      <div className="text-sm text-slate-500 flex items-center gap-2">
+                        <Calendar size={14} />
+                        {formatDate(attempt.timestamp)}
+                      </div>
+                      {attempt.topics && (
+                        <div className="flex flex-wrap gap-1 mt-1">
+                          {attempt.topics.slice(0, 3).map((topic, i) => (
+                            <span key={i} className="text-xs bg-blue-100 text-lab-blue px-2 py-1 rounded-full font-semibold">
+                              {topic}
+                            </span>
+                          ))}
+                          {attempt.topics.length > 3 && (
+                            <span className="text-xs text-slate-400 px-2 py-1">
+                              +{attempt.topics.length - 3} more
+                            </span>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Time Display */}
+                  {attempt.timeSpent && (
+                    <div className="text-right">
+                      <div className="flex items-center gap-1 text-sm font-semibold text-slate-600">
+                        <Clock size={14} />
+                        {formatTime(attempt.timeSpent)}
+                      </div>
+                      <div className="text-xs text-slate-400">
+                        {formatTime(attempt.timeSpent / attempt.totalQuestions)} per Q
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Debug Info */}
+      <div className="bg-slate-100 border border-slate-300 rounded-lg p-3 text-xs font-mono text-slate-600">
+        <strong>Debug Info:</strong> Total in DB: {attempts.length} | Filtered: {filteredAttempts.length} | Period: {filterPeriod} | Sort: {sortBy}
+      </div>
+    </div>
+  );
+}
+
+// ========== src/pages/LeaderboardPage.jsx ==========
+
+import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../contexts/AuthContext';
+import { quizService } from '../services/quizService';
+import { Trophy, Medal, Award, Calendar, TrendingUp, ArrowLeft } from 'lucide-react';
+
+export default function LeaderboardPage() {
+  const [activeTab, setActiveTab] = useState('weekly');
+  const [leaderboard, setLeaderboard] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const { currentUser } = useAuth();
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    loadLeaderboard();
+  }, [activeTab]);
+
+  async function loadLeaderboard() {
+    setLoading(true);
+    try {
+      let data;
+      switch (activeTab) {
+        case 'weekly':
+          data = await quizService.getWeeklyLeaderboard(20);
+          break;
+        case 'monthly':
+          data = await quizService.getMonthlyLeaderboard(20);
+          break;
+        case 'alltime':
+          data = await quizService.getAllTimeLeaderboard(20);
+          break;
+        default:
+          data = [];
+      }
+      setLeaderboard(data);
+    } catch (error) {
+      console.error('Error loading leaderboard:', error);
+    }
+    setLoading(false);
+  }
+
+  const getRankIcon = (rank) => {
+    switch(rank) {
+      case 1:
+        return <Trophy className="text-yellow-500" size={24} />;
+      case 2:
+        return <Medal className="text-slate-400" size={24} />;
+      case 3:
+        return <Award className="text-amber-600" size={24} />;
+      default:
+        return <div className="w-6 h-6 rounded-full bg-slate-200 flex items-center justify-center text-xs font-bold text-slate-600">{rank}</div>;
+    }
+  };
+
+  const getRankBadge = (rank) => {
+    switch(rank) {
+      case 1:
+        return 'bg-gradient-to-r from-yellow-400 to-yellow-600 text-white';
+      case 2:
+        return 'bg-gradient-to-r from-slate-300 to-slate-500 text-white';
+      case 3:
+        return 'bg-gradient-to-r from-amber-500 to-amber-700 text-white';
+      default:
+        return 'bg-white border-2 border-slate-200';
+    }
+  };
+
+  return (
+    <div className="max-w-4xl mx-auto space-y-6">
+      {/* Header */}
+      <div className="flex items-center gap-4">
+        <button
+          onClick={() => navigate('/dashboard')}
+          className="p-3 bg-white rounded-lg border-2 border-slate-200 hover:border-lab-blue transition-all"
+        >
+          <ArrowLeft size={20} />
+        </button>
+        
+        <div className="flex-1 bg-gradient-to-r from-amber-500 to-orange-600 rounded-2xl shadow-xl p-6 text-white">
+          <h1 className="text-3xl font-black flex items-center gap-3">
+            <Trophy size={32} />
+            Leaderboard
+          </h1>
+          <p className="text-orange-100 mt-1">
+            See how you rank against other students
+          </p>
+        </div>
+      </div>
+
+      {/* Tabs */}
+      <div className="bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden">
+        <div className="flex border-b">
+          <button
+            onClick={() => setActiveTab('weekly')}
+            className={`flex-1 px-6 py-4 font-bold transition-all flex items-center justify-center gap-2 ${
+              activeTab === 'weekly'
+                ? 'bg-lab-blue text-white'
+                : 'text-slate-600 hover:bg-slate-50'
+            }`}
+          >
+            <Calendar size={18} />
+            This Week
+          </button>
+          <button
+            onClick={() => setActiveTab('monthly')}
+            className={`flex-1 px-6 py-4 font-bold transition-all flex items-center justify-center gap-2 ${
+              activeTab === 'monthly'
+                ? 'bg-lab-blue text-white'
+                : 'text-slate-600 hover:bg-slate-50'
+            }`}
+          >
+            <TrendingUp size={18} />
+            This Month
+          </button>
+          <button
+            onClick={() => setActiveTab('alltime')}
+            className={`flex-1 px-6 py-4 font-bold transition-all flex items-center justify-center gap-2 ${
+              activeTab === 'alltime'
+                ? 'bg-lab-blue text-white'
+                : 'text-slate-600 hover:bg-slate-50'
+            }`}
+          >
+            <Trophy size={18} />
+            All Time
+          </button>
+        </div>
+
+        {/* Leaderboard List */}
+        <div className="p-6">
+          {loading ? (
+            <div className="flex items-center justify-center py-12">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-lab-blue"></div>
+            </div>
+          ) : leaderboard.length === 0 ? (
+            <div className="text-center py-12">
+              <p className="text-slate-400 text-lg">No data available yet</p>
+              <p className="text-slate-500 text-sm mt-2">
+                Be the first to complete a quiz!
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {leaderboard.map((entry, index) => {
+                const rank = index + 1;
+                const isCurrentUser = entry.userId === currentUser?.uid;
+
+                return (
+                  <div
+                    key={entry.userId}
+                    className={`flex items-center gap-4 p-4 rounded-xl transition-all ${
+                      getRankBadge(rank)
+                    } ${isCurrentUser ? 'ring-4 ring-chemistry-green ring-offset-2' : ''}`}
+                  >
+                    {/* Rank */}
+                    <div className="flex-shrink-0 w-10">
+                      {getRankIcon(rank)}
+                    </div>
+
+                    {/* User Info */}
+                    <div className="flex-1 min-w-0">
+                      <div className="font-bold text-lg truncate flex items-center gap-2">
+                        {entry.displayName}
+                        {isCurrentUser && (
+                          <span className="text-xs bg-chemistry-green text-white px-2 py-1 rounded-full">
+                            You
+                          </span>
+                        )}
+                      </div>
+                      <div className={`text-sm ${rank <= 3 ? 'text-white text-opacity-80' : 'text-slate-500'}`}>
+                        {activeTab === 'alltime' 
+                          ? `${entry.totalAttempts} attempts • ${entry.totalQuestions} questions`
+                          : `${entry.attemptCount} attempts • ${entry.totalQuestions} questions`
+                        }
+                      </div>
+                    </div>
+
+                    {/* Score */}
+                    <div className="text-right flex-shrink-0">
+                      <div className={`text-3xl font-black ${rank <= 3 ? '' : 'text-lab-blue'}`}>
+                        {activeTab === 'alltime' 
+                          ? entry.overallPercentage
+                          : entry.averageScore
+                        }%
+                      </div>
+                      <div className={`text-xs ${rank <= 3 ? 'text-white text-opacity-70' : 'text-slate-500'}`}>
+                        {entry.totalCorrect}/{entry.totalQuestions}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Info Box */}
+      <div className="bg-blue-50 border-2 border-blue-200 rounded-xl p-4 text-sm text-blue-800">
+        <p className="font-semibold mb-1">📊 How rankings work:</p>
+        <ul className="list-disc list-inside space-y-1 text-blue-700">
+          <li><strong>This Week:</strong> Average score from all attempts in the last 7 days</li>
+          <li><strong>This Month:</strong> Average score from all attempts in the last 30 days</li>
+          <li><strong>All Time:</strong> Overall accuracy across all attempts</li>
+        </ul>
+      </div>
+    </div>
+  );
+}
+
+// ========== src/pages/LoginPage.jsx ==========
+
+import React, { useState } from 'react';
+import { useNavigate, Link } from 'react-router-dom';
+import { useAuth } from '../contexts/AuthContext';
+import { Beaker, Mail, Lock, LogIn, AlertCircle } from 'lucide-react';
+
+export default function LoginPage() {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+  const { login } = useAuth();
+  const navigate = useNavigate();
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+
+    try {
+      setError('');
+      setLoading(true);
+      await login(email, password);
+      navigate('/');
+    } catch (err) {
+      console.error(err);
+      if (err.code === 'auth/user-not-found') {
+        setError('No account found with this email.');
+      } else if (err.code === 'auth/wrong-password') {
+        setError('Incorrect password.');
+      } else if (err.code === 'auth/invalid-email') {
+        setError('Invalid email address.');
+      } else {
+        setError('Failed to log in. Please check your credentials.');
+      }
+    }
+    setLoading(false);
+  }
+
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-slate-100 p-4">
+      <div className="max-w-md w-full">
+        {/* Logo Header */}
+        <div className="text-center mb-8">
+          <div className="flex justify-center mb-4">
+            <div className="bg-lab-blue p-4 rounded-2xl shadow-lg">
+              <Beaker className="text-white" size={48} />
+            </div>
+          </div>
+          <h1 className="text-3xl font-black text-lab-blue mb-2">
+            Chemistry HKDSE MCQ
+          </h1>
+          <p className="text-slate-600">Sign in to track your progress</p>
+        </div>
+
+        {/* Login Form */}
+        <div className="bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden">
+          <div className="bg-lab-blue p-6 text-center">
+            <h2 className="text-2xl font-bold text-white flex items-center justify-center gap-2">
+              <LogIn size={24} />
+              Login
+            </h2>
+          </div>
+
+          <form onSubmit={handleSubmit} className="p-8 space-y-6">
+            {error && (
+              <div className="bg-red-50 border-2 border-red-200 rounded-lg p-4 flex items-start gap-3">
+                <AlertCircle className="text-red-500 flex-shrink-0 mt-0.5" size={20} />
+                <p className="text-red-700 text-sm font-medium">{error}</p>
+              </div>
+            )}
+
+            {/* Email Field */}
+            <div>
+              <label className="block text-sm font-bold text-slate-700 mb-2">
+                Email Address
+              </label>
+              <div className="relative">
+                <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" size={20} />
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  required
+                  className="w-full pl-11 pr-4 py-3 border-2 border-slate-200 rounded-lg focus:border-lab-blue focus:ring-2 focus:ring-blue-100 outline-none transition-all"
+                  placeholder="your.email@example.com"
+                />
+              </div>
+            </div>
+
+            {/* Password Field */}
+            <div>
+              <label className="block text-sm font-bold text-slate-700 mb-2">
+                Password
+              </label>
+              <div className="relative">
+                <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" size={20} />
+                <input
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                  className="w-full pl-11 pr-4 py-3 border-2 border-slate-200 rounded-lg focus:border-lab-blue focus:ring-2 focus:ring-blue-100 outline-none transition-all"
+                  placeholder="••••••••"
+                />
+              </div>
+            </div>
+
+            {/* Submit Button */}
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full py-4 bg-lab-blue text-white rounded-xl font-bold text-lg shadow-lg hover:bg-blue-800 disabled:bg-slate-300 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2 active:scale-95"
+            >
+              {loading ? (
+                <>
+                  <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
+                  Logging in...
+                </>
+              ) : (
+                <>
+                  <LogIn size={20} />
+                  Login
+                </>
+              )}
+            </button>
+          </form>
+
+          {/* Register Link */}
+          <div className="bg-slate-50 px-8 py-6 border-t border-slate-200 text-center">
+            <p className="text-slate-600">
+              Don't have an account?{' '}
+              <Link 
+                to="/register" 
+                className="text-lab-blue font-bold hover:underline"
+              >
+                Register here
+              </Link>
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ========== src/pages/ProfilePage.jsx ==========
+
+import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../contexts/AuthContext';
+import { updateProfile } from 'firebase/auth';
+import { doc, updateDoc } from 'firebase/firestore';
+import { db } from '../firebase/config';
+import { User, GraduationCap, Mail, Calendar, Save, ArrowLeft, Trophy, Target } from 'lucide-react';
+
+export default function ProfilePage() {
+  const { currentUser, userProfile, loadUserProfile } = useAuth();
+  const navigate = useNavigate();
+  
+  const [displayName, setDisplayName] = useState(currentUser?.displayName || '');
+  const [level, setLevel] = useState(userProfile?.level || 'S5');
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState({ type: '', text: '' });
+
+  async function handleSave(e) {
+    e.preventDefault();
+    setSaving(true);
+    setMessage({ type: '', text: '' });
+
+    try {
+      // Update Firebase Auth profile
+      await updateProfile(currentUser, {
+        displayName: displayName
+      });
+
+      // Update Firestore user document
+      const userRef = doc(db, 'users', currentUser.uid);
+      await updateDoc(userRef, {
+        displayName: displayName,
+        level: level,
+        updatedAt: new Date().toISOString()
+      });
+
+      // Reload user profile
+      await loadUserProfile(currentUser.uid);
+
+      setMessage({ type: 'success', text: 'Profile updated successfully!' });
+    } catch (error) {
+      console.error('Error updating profile:', error);
+      setMessage({ type: 'error', text: 'Failed to update profile. Please try again.' });
+    }
+
+    setSaving(false);
+  }
+
+  const formatDate = (isoString) => {
+    if (!isoString) return 'N/A';
+    const date = new Date(isoString);
+    return date.toLocaleDateString('en-GB', { 
+      day: '2-digit', 
+      month: 'short', 
+      year: 'numeric'
+    });
+  };
+
+  const overallAccuracy = userProfile?.totalQuestions > 0
+    ? Math.round((userProfile.totalCorrect / userProfile.totalQuestions) * 100)
+    : 0;
+
+  return (
+    <div className="max-w-4xl mx-auto space-y-6">
+      {/* Header */}
+      <div className="flex items-center gap-4">
+        <button
+          onClick={() => navigate('/dashboard')}
+          className="p-3 bg-white rounded-lg border-2 border-slate-200 hover:border-lab-blue transition-all"
+        >
+          <ArrowLeft size={20} />
+        </button>
+        
+        <div className="flex-1 bg-gradient-to-r from-lab-blue to-blue-700 rounded-2xl shadow-xl p-6 text-white">
+          <h1 className="text-3xl font-black flex items-center gap-3">
+            <User size={32} />
+            Profile Settings
+          </h1>
+          <p className="text-blue-100 mt-1">
+            Manage your account and preferences
+          </p>
+        </div>
+      </div>
+
+      {/* Stats Summary */}
+      <div className="bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden">
+        <div className="bg-slate-50 p-4 border-b">
+          <h2 className="text-lg font-bold text-slate-800">Your Statistics</h2>
+        </div>
+        
+        <div className="p-6 grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="bg-blue-50 rounded-xl p-4 border-2 border-blue-200">
+            <div className="flex items-center gap-2 mb-2">
+              <Trophy className="text-lab-blue" size={20} />
+              <span className="text-sm font-semibold text-slate-600">Total Attempts</span>
+            </div>
+            <div className="text-3xl font-black text-lab-blue">
+              {userProfile?.totalAttempts || 0}
+            </div>
+          </div>
+
+          <div className="bg-green-50 rounded-xl p-4 border-2 border-green-200">
+            <div className="flex items-center gap-2 mb-2">
+              <Target className="text-chemistry-green" size={20} />
+              <span className="text-sm font-semibold text-slate-600">Overall Accuracy</span>
+            </div>
+            <div className="text-3xl font-black text-chemistry-green">
+              {overallAccuracy}%
+            </div>
+          </div>
+
+          <div className="bg-purple-50 rounded-xl p-4 border-2 border-purple-200">
+            <div className="flex items-center gap-2 mb-2">
+              <GraduationCap className="text-purple-600" size={20} />
+              <span className="text-sm font-semibold text-slate-600">Questions Solved</span>
+            </div>
+            <div className="text-3xl font-black text-purple-600">
+              {userProfile?.totalQuestions || 0}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Profile Form */}
+      <form onSubmit={handleSave} className="bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden">
+        <div className="bg-slate-50 p-4 border-b">
+          <h2 className="text-lg font-bold text-slate-800">Account Information</h2>
+        </div>
+
+        <div className="p-6 space-y-6">
+          {/* Success/Error Message */}
+          {message.text && (
+            <div className={`p-4 rounded-lg border-2 ${
+              message.type === 'success' 
+                ? 'bg-green-50 border-green-200 text-green-800' 
+                : 'bg-red-50 border-red-200 text-red-800'
+            }`}>
+              <p className="font-semibold">{message.text}</p>
+            </div>
+          )}
+
+          {/* Display Name */}
+          <div>
+            <label className="block text-sm font-bold text-slate-700 mb-2 flex items-center gap-2">
+              <User size={16} />
+              Display Name
+            </label>
+            <input
+              type="text"
+              value={displayName}
+              onChange={(e) => setDisplayName(e.target.value)}
+              required
+              className="w-full px-4 py-3 border-2 border-slate-200 rounded-lg focus:border-lab-blue focus:ring-2 focus:ring-blue-100 outline-none transition-all"
+              placeholder="Enter your name"
+            />
+          </div>
+
+          {/* Email (Read-only) */}
+          <div>
+            <label className="block text-sm font-bold text-slate-700 mb-2 flex items-center gap-2">
+              <Mail size={16} />
+              Email Address
+            </label>
+            <input
+              type="email"
+              value={currentUser?.email || ''}
+              disabled
+              className="w-full px-4 py-3 border-2 border-slate-200 rounded-lg bg-slate-50 text-slate-500 cursor-not-allowed"
+            />
+            <p className="text-xs text-slate-500 mt-1">Email cannot be changed</p>
+          </div>
+
+          {/* School Level */}
+          <div>
+            <label className="block text-sm font-bold text-slate-700 mb-2 flex items-center gap-2">
+              <GraduationCap size={16} />
+              School Level (Form)
+            </label>
+            <div className="grid grid-cols-3 gap-3">
+              {['S4', 'S5', 'S6'].map((lvl) => (
+                <button
+                  key={lvl}
+                  type="button"
+                  onClick={() => setLevel(lvl)}
+                  className={`py-3 rounded-xl border-2 font-bold transition-all ${
+                    level === lvl
+                      ? 'border-lab-blue bg-blue-50 text-lab-blue'
+                      : 'border-slate-200 text-slate-600 hover:border-slate-300'
+                  }`}
+                >
+                  {lvl}
+                </button>
+              ))}
+            </div>
+            <p className="text-xs text-slate-500 mt-2">
+              Select your current form (Secondary 4, 5, or 6)
+            </p>
+          </div>
+
+          {/* Account Created Date */}
+          <div>
+            <label className="block text-sm font-bold text-slate-700 mb-2 flex items-center gap-2">
+              <Calendar size={16} />
+              Member Since
+            </label>
+            <div className="px-4 py-3 border-2 border-slate-200 rounded-lg bg-slate-50 text-slate-700 font-semibold">
+              {formatDate(userProfile?.createdAt)}
+            </div>
+          </div>
+
+          {/* Save Button */}
+          <button
+            type="submit"
+            disabled={saving}
+            className="w-full py-4 bg-lab-blue text-white rounded-xl font-bold text-lg shadow-lg hover:bg-blue-800 disabled:bg-slate-300 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2 active:scale-95"
+          >
+            {saving ? (
+              <>
+                <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
+                Saving...
+              </>
+            ) : (
+              <>
+                <Save size={20} />
+                Save Changes
+              </>
+            )}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+// ========== src/pages/QuizPage.jsx ==========
+
+import React, { useState, useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
+import QuestionCard from '../components/QuestionCard';
+import { ChevronLeft, ChevronRight, Send, Timer, FlaskConical, Flag, Clock, X, Home } from 'lucide-react';
+import { quizStorage } from '../utils/quizStorage';
+
+export default function QuizPage() {
+  const navigate = useNavigate();
+  
+  // Load questions from storage
+  const questions = quizStorage.getSelectedQuestions();
+  
+  // Redirect if no questions selected
+  useEffect(() => {
+    if (!questions || questions.length === 0) {
+      navigate('/');
+    }
+  }, [questions, navigate]);
+
+  // Load saved state or initialize
+  const [currentIndex, setCurrentIndex] = useState(() => quizStorage.getCurrentIndex());
+  const [answers, setAnswers] = useState(() => quizStorage.getUserAnswers());
+  const [flagged, setFlagged] = useState(() => quizStorage.getFlagged());
+  const [showPeriodicTable, setShowPeriodicTable] = useState(false);
+  const [showQuestionPanel, setShowQuestionPanel] = useState(false);
+  const [timerEnabled, setTimerEnabled] = useState(() => quizStorage.getTimerEnabled());
+  const [questionTimes, setQuestionTimes] = useState(() => quizStorage.getQuestionTimes());
+  const [currentQuestionStartTime, setCurrentQuestionStartTime] = useState(null);
+  const [currentTime, setCurrentTime] = useState(Date.now());
+  const [sessionStartTime, setSessionStartTime] = useState(() => quizStorage.getSessionStart());
+  const timerInitialized = useRef(false);
+
+  // CRITICAL: Prevent page refresh/close without warning
+  useEffect(() => {
+    const handleBeforeUnload = (e) => {
+      e.preventDefault();
+      e.returnValue = ''; // Chrome requires returnValue to be set
+      return ''; // For older browsers
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, []);
+
+  // Save state to localStorage whenever it changes
+  useEffect(() => {
+    quizStorage.saveCurrentIndex(currentIndex);
+  }, [currentIndex]);
+
+  useEffect(() => {
+    quizStorage.saveUserAnswers(answers);
+  }, [answers]);
+
+  useEffect(() => {
+    quizStorage.saveFlagged(flagged);
+  }, [flagged]);
+
+  useEffect(() => {
+    quizStorage.saveQuestionTimes(questionTimes);
+  }, [questionTimes]);
+
+  useEffect(() => {
+    if (timerEnabled !== null) {
+      quizStorage.saveTimerEnabled(timerEnabled);
+    }
+  }, [timerEnabled]);
+
+  useEffect(() => {
+    if (sessionStartTime !== null) {
+      quizStorage.saveSessionStart(sessionStartTime);
+    }
+  }, [sessionStartTime]);
+
+  if (!questions || questions.length === 0) {
+    return null; // Will redirect in useEffect
+  }
+
+  const currentQuestion = questions[currentIndex];
+  const totalQuestions = questions.length;
+  const progress = ((currentIndex + 1) / totalQuestions) * 100;
+
+  // Timer initialization prompt - only once
+  useEffect(() => {
+    if (timerEnabled === null && !timerInitialized.current) {
+      timerInitialized.current = true;
+      const enableTimer = window.confirm(
+        "Do you want to enable the timer?\n\n" +
+        "The timer will track how long you spend on each question.\n\n" +
+        "Click OK to enable, Cancel to skip."
+      );
+      setTimerEnabled(enableTimer);
+      if (enableTimer) {
+        const now = Date.now();
+        setCurrentQuestionStartTime(now);
+        setSessionStartTime(now);
+      }
+    }
+  }, [timerEnabled]);
+
+  // Live timer update - updates every second
+  useEffect(() => {
+    if (!timerEnabled) return;
+    
+    const interval = setInterval(() => {
+      setCurrentTime(Date.now());
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [timerEnabled]);
+
+  // Start timer when changing questions
+  useEffect(() => {
+    if (timerEnabled && currentQuestion) {
+      setCurrentQuestionStartTime(Date.now());
+    }
+  }, [currentIndex, timerEnabled]);
+
+  // Record time when leaving a question
+  const recordQuestionTime = () => {
+    if (timerEnabled && currentQuestionStartTime) {
+      const timeSpent = Date.now() - currentQuestionStartTime;
+      setQuestionTimes(prev => ({
+        ...prev,
+        [currentQuestion.ID]: (prev[currentQuestion.ID] || 0) + timeSpent
+      }));
+    }
+  };
+
+  const handleOptionSelect = (option) => {
+    setAnswers({
+      ...answers,
+      [currentQuestion.ID]: option
+    });
+  };
+
+  const toggleFlag = () => {
+    const questionId = currentQuestion.ID;
+    setFlagged(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(questionId)) {
+        newSet.delete(questionId);
+      } else {
+        newSet.add(questionId);
+      }
+      return newSet;
+    });
+  };
+
+  const nextQuestion = () => {
+    recordQuestionTime();
+    if (currentIndex < totalQuestions - 1) {
+      setCurrentIndex(currentIndex + 1);
+    }
+  };
+
+  const prevQuestion = () => {
+    recordQuestionTime();
+    if (currentIndex > 0) {
+      setCurrentIndex(currentIndex - 1);
+    }
+  };
+
+  const jumpToQuestion = (index) => {
+    recordQuestionTime();
+    setCurrentIndex(index);
+    setShowQuestionPanel(false);
+  };
+
+  const handleBackToTopics = () => {
+    const confirmed = window.confirm(
+      "Are you sure you want to go back to topic selection?\n\n" +
+      "⚠️ ALL YOUR PROGRESS WILL BE LOST!"
+    );
+    
+    if (confirmed) {
+      quizStorage.clearQuizData();
+      navigate('/');
+    }
+  };
+
+  const handleComplete = () => {
+    recordQuestionTime();
+    
+    // Save final state
+    quizStorage.saveUserAnswers(answers);
+    quizStorage.saveQuestionTimes(questionTimes);
+    
+    // Navigate to results
+    navigate('/results');
+  };
+
+  const isLastQuestion = currentIndex === totalQuestions - 1;
+  const allAnswered = Object.keys(answers).length === totalQuestions;
+
+  // Calculate total time spent (accumulated + current question time)
+  const getTotalTimeSpent = () => {
+    const accumulated = Object.values(questionTimes).reduce((sum, time) => sum + time, 0);
+    if (timerEnabled && currentQuestionStartTime) {
+      const currentQuestionTime = currentTime - currentQuestionStartTime;
+      return accumulated + currentQuestionTime;
+    }
+    return accumulated;
+  };
+
+  // Calculate session time
+  const getSessionTime = () => {
+    if (timerEnabled && sessionStartTime) {
+      return currentTime - sessionStartTime;
+    }
+    return 0;
+  };
+
+  const formatTime = (ms) => {
+    const seconds = Math.floor(ms / 1000);
+    const minutes = Math.floor(seconds / 60);
+    const hrs = Math.floor(minutes / 60);
+    if (hrs > 0) {
+      return `${hrs}:${String(minutes % 60).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
+    }
+    return `${minutes}:${String(seconds % 60).padStart(2, '0')}`;
+  };
+
+  // Get question status
+  const getQuestionStatus = (q) => {
+    if (answers[q.ID]) return 'answered';
+    if (flagged.has(q.ID)) return 'flagged';
+    return 'skipped';
+  };
+
+  if (timerEnabled === null) {
+    return (
+      <div className="flex h-screen items-center justify-center">
+        <div className="text-center">
+          <Clock className="animate-pulse text-lab-blue w-12 h-12 mx-auto mb-4" />
+          <p className="text-slate-600">Initializing quiz...</p>
+        </div>
+      </div>
+    );
+  }
+
+  const totalTimeSpent = getTotalTimeSpent();
+  const sessionTime = getSessionTime();
+
+  return (
+    <div className="relative h-screen overflow-hidden">
+      {/* Back to Topics Button - Top Left */}
+      <button
+        onClick={handleBackToTopics}
+        className="fixed left-8 top-8 z-30 flex items-center gap-2 px-4 py-2 bg-red-500 text-white rounded-lg font-bold hover:bg-red-600 transition-all shadow-lg hover:scale-105 active:scale-95"
+      >
+        <Home size={18} />
+        <span>Back to Topics</span>
+      </button>
+
+      {/* Fixed Left Sidebar */}
+      <div className="fixed left-8 top-32 flex flex-col gap-4 z-30 h-[calc(100vh-10rem)]">
+        {/* Timer Display */}
+        {timerEnabled && (
+          <div className="bg-white rounded-2xl shadow-xl border-2 border-lab-blue p-6 w-48">
+            <div className="text-center">
+              <div className="flex items-center justify-center gap-2 mb-2">
+                <Timer className="text-lab-blue" size={24} />
+                <span className="text-sm font-bold text-slate-600">SESSION TIME</span>
+              </div>
+              <div className="text-4xl font-black text-lab-blue mb-4 font-mono">
+                {formatTime(sessionTime)}
+              </div>
+              <div className="text-xs text-slate-500 border-t pt-2">
+                <div className="flex justify-between mb-1">
+                  <span>Active Time:</span>
+                  <span className="font-bold">{formatTime(totalTimeSpent)}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Periodic Table Button */}
+        <button
+          onClick={() => setShowPeriodicTable(true)}
+          className="flex items-center gap-2 px-6 py-4 bg-purple-600 text-white rounded-xl font-bold hover:bg-purple-700 transition-all shadow-lg hover:scale-105 active:scale-95"
+        >
+          <FlaskConical size={20} />
+          <span>Periodic Table</span>
+        </button>
+
+        {/* Question Panel Button */}
+        <button
+          onClick={() => setShowQuestionPanel(!showQuestionPanel)}
+          className="flex items-center gap-2 px-6 py-4 bg-slate-700 text-white rounded-xl font-bold hover:bg-slate-800 transition-all shadow-lg hover:scale-105 active:scale-95"
+        >
+          <Flag size={20} />
+          <span>Overview</span>
+        </button>
+
+        {/* Spacer to push button to bottom */}
+        <div className="flex-1"></div>
+
+        {/* Previous Button - Left Side - Aligned to bottom */}
+        <button
+          onClick={prevQuestion}
+          disabled={currentIndex === 0}
+          className="flex items-center justify-center w-16 h-16 bg-lab-blue text-white rounded-full font-bold hover:bg-blue-800 disabled:bg-slate-300 disabled:cursor-not-allowed transition-all shadow-lg hover:scale-110 active:scale-95"
+        >
+          <ChevronLeft size={32} />
+        </button>
+      </div>
+
+      {/* Fixed Right Sidebar */}
+      <div className="fixed right-8 top-32 flex flex-col gap-4 z-30 h-[calc(100vh-10rem)]">
+        {/* Flag Button */}
+        <button
+          onClick={toggleFlag}
+          className={`w-16 h-16 rounded-full flex items-center justify-center transition-all shadow-lg hover:scale-110 active:scale-95 ${
+            flagged.has(currentQuestion?.ID)
+              ? 'bg-amber-500 text-white hover:bg-amber-600'
+              : 'bg-white text-amber-500 border-2 border-amber-500 hover:bg-amber-50'
+          }`}
+          title={flagged.has(currentQuestion?.ID) ? 'Unflag Question' : 'Flag Question'}
+        >
+          <Flag size={28} fill={flagged.has(currentQuestion?.ID) ? 'currentColor' : 'none'} />
+        </button>
+
+        {/* Spacer to push button to bottom */}
+        <div className="flex-1"></div>
+
+        {/* Next/Submit Button - Right Side - Aligned to bottom */}
+        {!isLastQuestion ? (
+          <button
+            onClick={nextQuestion}
+            className="flex items-center justify-center w-16 h-16 bg-lab-blue text-white rounded-full font-bold hover:bg-blue-800 transition-all shadow-lg hover:scale-110 active:scale-95"
+          >
+            <ChevronRight size={32} />
+          </button>
+        ) : (
+          <button
+            onClick={handleComplete}
+            disabled={!allAnswered}
+            className={`flex items-center justify-center w-16 h-16 rounded-full font-bold transition-all shadow-lg hover:scale-110 active:scale-95 ${
+              allAnswered 
+                ? 'bg-chemistry-green text-white hover:opacity-90' 
+                : 'bg-slate-300 text-slate-500 cursor-not-allowed'
+            }`}
+            title="Finish & Submit"
+          >
+            <Send size={28} />
+          </button>
+        )}
+      </div>
+
+      {/* Question Overview Panel - Floating Left Sidebar */}
+      {showQuestionPanel && (
+        <>
+          {/* Backdrop - semi-transparent to see content behind */}
+          <div 
+            className="fixed inset-0 z-40"
+            style={{ backgroundColor: 'rgba(0, 0, 0, 0.15)' }}
+            onClick={() => setShowQuestionPanel(false)}
+          />
+          
+          {/* Panel - narrower sidebar on the left */}
+          <div className="fixed left-0 top-0 h-full w-80 bg-white shadow-2xl z-50 overflow-y-auto animate-in slide-in-from-left duration-300">
+            <div className="sticky top-0 bg-white border-b p-6 flex justify-between items-center">
+              <h3 className="text-lg font-bold text-slate-800">Question Overview</h3>
+              <button 
+                onClick={() => setShowQuestionPanel(false)}
+                className="text-slate-400 hover:text-slate-600 p-2 rounded-full hover:bg-slate-100"
+              >
+                <X size={20} />
+              </button>
+            </div>
+            
+            <div className="p-6">
+              <div className="flex flex-col gap-3 mb-6 text-sm">
+                <div className="flex items-center gap-2">
+                  <div className="w-6 h-6 rounded bg-chemistry-green"></div>
+                  <span>Answered ({Object.keys(answers).length})</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="w-6 h-6 rounded bg-amber-500"></div>
+                  <span>Flagged ({flagged.size})</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="w-6 h-6 rounded bg-slate-200"></div>
+                  <span>Skipped ({totalQuestions - Object.keys(answers).length})</span>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-4 gap-3">
+                {questions.map((q, idx) => {
+                  const status = getQuestionStatus(q);
+                  return (
+                    <button
+                      key={q.ID}
+                      onClick={() => jumpToQuestion(idx)}
+                      className={`aspect-square rounded-xl font-bold text-base transition-all border-2 ${
+                        idx === currentIndex
+                          ? 'border-lab-blue ring-2 ring-lab-blue ring-offset-2'
+                          : 'border-transparent'
+                      } ${
+                        status === 'answered'
+                          ? 'bg-chemistry-green text-white hover:opacity-80'
+                          : status === 'flagged'
+                          ? 'bg-amber-500 text-white hover:opacity-80'
+                          : 'bg-slate-200 text-slate-600 hover:bg-slate-300'
+                      }`}
+                    >
+                      {idx + 1}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* Periodic Table Modal */}
+      {showPeriodicTable && (
+        <div 
+          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4"
+          onClick={() => setShowPeriodicTable(false)}
+        >
+          <div 
+            className="bg-white rounded-2xl shadow-2xl max-w-6xl w-full max-h-[90vh] overflow-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="sticky top-0 bg-white border-b p-4 flex justify-between items-center">
+              <h3 className="text-xl font-bold text-slate-800">Periodic Table of Elements</h3>
+              <button 
+                onClick={() => setShowPeriodicTable(false)}
+                className="text-slate-400 hover:text-slate-600 p-2 rounded-full hover:bg-slate-100"
+              >
+                <X size={24} />
+              </button>
+            </div>
+            <div className="p-4">
+              <img 
+                src="https://upload.wikimedia.org/wikipedia/commons/2/2e/Simple_Periodic_Table_Chart-en.svg"
+                alt="Periodic Table"
+                className="w-full h-auto"
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Main Content Area - Centered and compact */}
+      <div className="max-w-5xl mx-auto px-4 py-6 h-full flex flex-col">
+        {/* Progress Header - More Compact */}
+        <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 mb-4">
+          <div className="flex justify-between items-center mb-2">
+            <div className="flex items-baseline gap-3">
+              <span className="text-3xl font-black text-lab-blue">
+                Q{currentIndex + 1}
+              </span>
+              <span className="text-sm font-medium text-slate-500">
+                of {totalQuestions}
+              </span>
+            </div>
+            <span className="text-xl font-bold text-lab-blue">
+              {Math.round(progress)}%
+            </span>
+          </div>
+          <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
+            <div 
+              className="bg-lab-blue h-full transition-all duration-300" 
+              style={{ width: `${progress}%` }}
+            />
+          </div>
+        </div>
+
+        {/* Question Card Component - Takes remaining space */}
+        <div className="flex-1 overflow-y-auto">
+          <QuestionCard 
+            question={currentQuestion}
+            selectedOption={answers[currentQuestion.ID]}
+            onSelect={handleOptionSelect}
+          />
+        </div>
+
+        {/* Mini Progress Dots */}
+        <div className="flex justify-center gap-1 mt-4 py-2">
+          {questions.slice(0, Math.min(30, totalQuestions)).map((_, idx) => (
+            <div 
+              key={idx}
+              className={`w-2 h-2 rounded-full transition-all ${
+                idx === currentIndex ? 'bg-lab-blue w-6' : 
+                answers[questions[idx].ID] ? 'bg-chemistry-green' : 
+                flagged.has(questions[idx].ID) ? 'bg-amber-500' : 'bg-slate-200'
+              }`}
+            />
+          ))}
+          {totalQuestions > 30 && <span className="text-slate-400 text-xs">...</span>}
+        </div>
+
+        {!allAnswered && isLastQuestion && (
+          <p className="text-center text-sm text-amber-600 font-medium mt-2">
+            Please answer all questions before submitting.
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ========== src/pages/RegisterPage.jsx ==========
+
+import React, { useState } from 'react';
+import { useNavigate, Link } from 'react-router-dom';
+import { useAuth } from '../contexts/AuthContext';
+import { Beaker, Mail, Lock, User, UserPlus, AlertCircle } from 'lucide-react';
+
+export default function RegisterPage() {
+  const [displayName, setDisplayName] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+  const { signup } = useAuth();
+  const navigate = useNavigate();
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+
+    // Validation
+    if (password !== confirmPassword) {
+      return setError('Passwords do not match');
+    }
+
+    if (password.length < 6) {
+      return setError('Password must be at least 6 characters');
+    }
+
+    if (displayName.trim().length < 2) {
+      return setError('Please enter your full name');
+    }
+
+    try {
+      setError('');
+      setLoading(true);
+      await signup(email, password, displayName);
+      navigate('/');
+    } catch (err) {
+      console.error(err);
+      if (err.code === 'auth/email-already-in-use') {
+        setError('An account with this email already exists.');
+      } else if (err.code === 'auth/invalid-email') {
+        setError('Invalid email address.');
+      } else if (err.code === 'auth/weak-password') {
+        setError('Password is too weak. Use at least 6 characters.');
+      } else {
+        setError('Failed to create account. Please try again.');
+      }
+    }
+    setLoading(false);
+  }
+
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-slate-100 p-4">
+      <div className="max-w-md w-full">
+        {/* Logo Header */}
+        <div className="text-center mb-8">
+          <div className="flex justify-center mb-4">
+            <div className="bg-chemistry-green p-4 rounded-2xl shadow-lg">
+              <Beaker className="text-white" size={48} />
+            </div>
+          </div>
+          <h1 className="text-3xl font-black text-lab-blue mb-2">
+            Chemistry HKDSE MCQ
+          </h1>
+          <p className="text-slate-600">Create your account to get started</p>
+        </div>
+
+        {/* Register Form */}
+        <div className="bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden">
+          <div className="bg-chemistry-green p-6 text-center">
+            <h2 className="text-2xl font-bold text-white flex items-center justify-center gap-2">
+              <UserPlus size={24} />
+              Register
+            </h2>
+          </div>
+
+          <form onSubmit={handleSubmit} className="p-8 space-y-6">
+            {error && (
+              <div className="bg-red-50 border-2 border-red-200 rounded-lg p-4 flex items-start gap-3">
+                <AlertCircle className="text-red-500 flex-shrink-0 mt-0.5" size={20} />
+                <p className="text-red-700 text-sm font-medium">{error}</p>
+              </div>
+            )}
+
+            {/* Display Name Field */}
+            <div>
+              <label className="block text-sm font-bold text-slate-700 mb-2">
+                Full Name
+              </label>
+              <div className="relative">
+                <User className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" size={20} />
+                <input
+                  type="text"
+                  value={displayName}
+                  onChange={(e) => setDisplayName(e.target.value)}
+                  required
+                  className="w-full pl-11 pr-4 py-3 border-2 border-slate-200 rounded-lg focus:border-chemistry-green focus:ring-2 focus:ring-green-100 outline-none transition-all"
+                  placeholder="John Doe"
+                />
+              </div>
+            </div>
+
+            {/* Email Field */}
+            <div>
+              <label className="block text-sm font-bold text-slate-700 mb-2">
+                Email Address
+              </label>
+              <div className="relative">
+                <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" size={20} />
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  required
+                  className="w-full pl-11 pr-4 py-3 border-2 border-slate-200 rounded-lg focus:border-chemistry-green focus:ring-2 focus:ring-green-100 outline-none transition-all"
+                  placeholder="your.email@example.com"
+                />
+              </div>
+            </div>
+
+            {/* Password Field */}
+            <div>
+              <label className="block text-sm font-bold text-slate-700 mb-2">
+                Password
+              </label>
+              <div className="relative">
+                <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" size={20} />
+                <input
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                  className="w-full pl-11 pr-4 py-3 border-2 border-slate-200 rounded-lg focus:border-chemistry-green focus:ring-2 focus:ring-green-100 outline-none transition-all"
+                  placeholder="••••••••"
+                />
+              </div>
+              <p className="text-xs text-slate-500 mt-1">Minimum 6 characters</p>
+            </div>
+
+            {/* Confirm Password Field */}
+            <div>
+              <label className="block text-sm font-bold text-slate-700 mb-2">
+                Confirm Password
+              </label>
+              <div className="relative">
+                <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" size={20} />
+                <input
+                  type="password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  required
+                  className="w-full pl-11 pr-4 py-3 border-2 border-slate-200 rounded-lg focus:border-chemistry-green focus:ring-2 focus:ring-green-100 outline-none transition-all"
+                  placeholder="••••••••"
+                />
+              </div>
+            </div>
+
+            {/* Submit Button */}
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full py-4 bg-chemistry-green text-white rounded-xl font-bold text-lg shadow-lg hover:opacity-90 disabled:bg-slate-300 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2 active:scale-95"
+            >
+              {loading ? (
+                <>
+                  <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
+                  Creating account...
+                </>
+              ) : (
+                <>
+                  <UserPlus size={20} />
+                  Create Account
+                </>
+              )}
+            </button>
+          </form>
+
+          {/* Login Link */}
+          <div className="bg-slate-50 px-8 py-6 border-t border-slate-200 text-center">
+            <p className="text-slate-600">
+              Already have an account?{' '}
+              <Link 
+                to="/login" 
+                className="text-lab-blue font-bold hover:underline"
+              >
+                Login here
+              </Link>
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ========== src/pages/ResultsPage_Updated_Fixed.jsx ==========
+
+import React, { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../contexts/AuthContext';
+import ResultsSummary from '../components/ResultsSummary';
+import { quizStorage } from '../utils/quizStorage';
+import { quizService } from '../services/quizService';
+
+export default function ResultsPage() {
+  const navigate = useNavigate();
+  const { currentUser } = useAuth();
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  
+  // Load data from storage
+  const questions = quizStorage.getSelectedQuestions();
+  const userAnswers = quizStorage.getUserAnswers();
+  const questionTimes = quizStorage.getQuestionTimes();
+
+  // Redirect if no data
+  useEffect(() => {
+    if (!questions || questions.length === 0 || Object.keys(userAnswers).length === 0) {
+      navigate('/');
+    }
+  }, [questions, userAnswers, navigate]);
+
+  // Save attempt to Firebase on mount
+  useEffect(() => {
+    async function saveAttemptToFirebase() {
+      if (!currentUser || !questions || questions.length === 0 || saved || saving) {
+        return;
+      }
+
+      setSaving(true);
+      
+      try {
+        // Calculate results
+        const totalQuestions = questions.length;
+        const correctAnswers = questions.reduce((acc, q) => {
+          return acc + (userAnswers[q.ID] === q.CorrectOption ? 1 : 0);
+        }, 0);
+        const percentage = Math.round((correctAnswers / totalQuestions) * 100);
+
+        // Get unique topics
+        const topics = [...new Set(questions.map(q => q.Topic))].filter(Boolean);
+
+        // Calculate total time spent
+        const timeSpent = questionTimes 
+          ? Object.values(questionTimes).reduce((sum, time) => sum + time, 0)
+          : null;
+
+        // Save to Firebase
+        const attemptData = {
+          score: percentage,
+          totalQuestions: totalQuestions,
+          correctAnswers: correctAnswers,
+          percentage: percentage,
+          topics: topics,
+          timeSpent: timeSpent,
+          questionTimes: questionTimes,
+          answers: userAnswers
+        };
+
+        await quizService.saveAttempt(currentUser.uid, attemptData);
+        setSaved(true);
+        console.log('✅ Attempt saved to Firebase successfully!');
+      } catch (error) {
+        console.error('❌ Error saving attempt to Firebase:', error);
+        // Don't block the user from seeing results even if save fails
+      } finally {
+        setSaving(false);
+      }
+    }
+
+    saveAttemptToFirebase();
+  }, [currentUser, questions, userAnswers, questionTimes, saved, saving]);
+
+  if (!questions || questions.length === 0) {
+    return null; // Will redirect in useEffect
+  }
+
+  const handleRestart = () => {
+    // Clear all quiz data
+    quizStorage.clearQuizData();
+    
+    // Navigate back to topic selection
+    navigate('/');
+  };
+
+  return (
+    <div className="relative">
+      {/* Saving indicator */}
+      {saving && (
+        <div className="fixed top-20 right-4 bg-blue-500 text-white px-4 py-2 rounded-lg shadow-lg z-50 flex items-center gap-2">
+          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+          <span className="font-semibold">Saving to your profile...</span>
+        </div>
+      )}
+
+      {/* Saved confirmation */}
+      {saved && (
+        <div className="fixed top-20 right-4 bg-green-500 text-white px-4 py-2 rounded-lg shadow-lg z-50 flex items-center gap-2 animate-in slide-in-from-right">
+          <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+            <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+          </svg>
+          <span className="font-semibold">Saved to your profile!</span>
+        </div>
+      )}
+
+      <ResultsSummary 
+        questions={questions}
+        userAnswers={userAnswers}
+        questionTimes={questionTimes}
+        onRestart={handleRestart}
+      />
+    </div>
+  );
+}
+
+// ========== src/pages/TopicSelectionPage_Updated.jsx ==========
+
+import React from 'react';
+import { useNavigate } from 'react-router-dom';
+import FilterScreen from '../components/FilterScreen';
+import { quizStorage } from '../utils/quizStorage';
+
+export default function TopicSelectionPage({ questions }) {
+  const navigate = useNavigate();
+
+  const handleStart = (selectedQuestions) => {
+    // Clear any previous quiz data
+    quizStorage.clearQuizData();
+    
+    // Save selected questions
+    quizStorage.saveSelectedQuestions(selectedQuestions);
+    
+    // Navigate to quiz page
+    navigate('/quiz');
+  };
+
+  return <FilterScreen questions={questions} onStart={handleStart} />;
+}
+
+// ========== src/services/quizService.js ==========
+
+import { doc, setDoc, collection, addDoc, updateDoc, increment, query, where, orderBy, limit, getDocs, getDoc } from 'firebase/firestore';
+import { db } from '../firebase/config';
+
+export const quizService = {
+  // Save a quiz attempt
+  async saveAttempt(userId, attemptData) {
+    try {
+      const attemptRef = await addDoc(collection(db, 'attempts'), {
+        userId: userId,
+        timestamp: new Date().toISOString(),
+        date: new Date().toISOString().split('T')[0], // For daily grouping
+        score: attemptData.score,
+        totalQuestions: attemptData.totalQuestions,
+        correctAnswers: attemptData.correctAnswers,
+        percentage: attemptData.percentage,
+        topics: attemptData.topics,
+        timeSpent: attemptData.timeSpent || null,
+        questionTimes: attemptData.questionTimes || null,
+        answers: attemptData.answers || null
+      });
+
+      // Update user statistics
+      const userRef = doc(db, 'users', userId);
+      await updateDoc(userRef, {
+        totalAttempts: increment(1),
+        totalQuestions: increment(attemptData.totalQuestions),
+        totalCorrect: increment(attemptData.correctAnswers),
+        lastAttemptDate: new Date().toISOString()
+      });
+
+      return attemptRef.id;
+    } catch (error) {
+      console.error('Error saving attempt:', error);
+      throw error;
+    }
+  },
+
+  // Get user's attempt history
+  async getUserAttempts(userId, limitCount = 20) {
+    try {
+      const q = query(
+        collection(db, 'attempts'),
+        where('userId', '==', userId),
+        orderBy('timestamp', 'desc'),
+        limit(limitCount)
+      );
+
+      const querySnapshot = await getDocs(q);
+      const attempts = [];
+      querySnapshot.forEach((doc) => {
+        attempts.push({
+          id: doc.id,
+          ...doc.data()
+        });
+      });
+
+      return attempts;
+    } catch (error) {
+      console.error('Error getting user attempts:', error);
+      throw error;
+    }
+  },
+
+  // Get weekly leaderboard
+  async getWeeklyLeaderboard(limitCount = 10) {
+    try {
+      const weekAgo = new Date();
+      weekAgo.setDate(weekAgo.getDate() - 7);
+      const weekAgoISO = weekAgo.toISOString();
+
+      const q = query(
+        collection(db, 'attempts'),
+        where('timestamp', '>=', weekAgoISO),
+        orderBy('timestamp', 'desc')
+      );
+
+      const querySnapshot = await getDocs(q);
+      
+      // Group by user and calculate averages
+      const userScores = new Map();
+      
+      querySnapshot.forEach((doc) => {
+        const data = doc.data();
+        const userId = data.userId;
+        
+        if (!userScores.has(userId)) {
+          userScores.set(userId, {
+            userId: userId,
+            attempts: [],
+            totalScore: 0,
+            totalQuestions: 0,
+            totalCorrect: 0
+          });
+        }
+        
+        const userScore = userScores.get(userId);
+        userScore.attempts.push(data);
+        userScore.totalScore += data.percentage;
+        userScore.totalQuestions += data.totalQuestions;
+        userScore.totalCorrect += data.correctAnswers;
+      });
+
+      // Calculate averages and get user details
+      const leaderboardPromises = Array.from(userScores.values()).map(async (userScore) => {
+        const userDoc = await getDoc(doc(db, 'users', userScore.userId));
+        const userData = userDoc.data();
+        
+        return {
+          userId: userScore.userId,
+          displayName: userData?.displayName || 'Unknown',
+          attemptCount: userScore.attempts.length,
+          averageScore: Math.round(userScore.totalScore / userScore.attempts.length),
+          totalQuestions: userScore.totalQuestions,
+          totalCorrect: userScore.totalCorrect,
+          overallPercentage: Math.round((userScore.totalCorrect / userScore.totalQuestions) * 100)
+        };
+      });
+
+      const leaderboard = await Promise.all(leaderboardPromises);
+      
+      // Sort by average score
+      leaderboard.sort((a, b) => b.averageScore - a.averageScore);
+      
+      return leaderboard.slice(0, limitCount);
+    } catch (error) {
+      console.error('Error getting weekly leaderboard:', error);
+      throw error;
+    }
+  },
+
+  // Get monthly leaderboard
+  async getMonthlyLeaderboard(limitCount = 10) {
+    try {
+      const monthAgo = new Date();
+      monthAgo.setMonth(monthAgo.getMonth() - 1);
+      const monthAgoISO = monthAgo.toISOString();
+
+      const q = query(
+        collection(db, 'attempts'),
+        where('timestamp', '>=', monthAgoISO),
+        orderBy('timestamp', 'desc')
+      );
+
+      const querySnapshot = await getDocs(q);
+      
+      // Group by user and calculate averages
+      const userScores = new Map();
+      
+      querySnapshot.forEach((doc) => {
+        const data = doc.data();
+        const userId = data.userId;
+        
+        if (!userScores.has(userId)) {
+          userScores.set(userId, {
+            userId: userId,
+            attempts: [],
+            totalScore: 0,
+            totalQuestions: 0,
+            totalCorrect: 0
+          });
+        }
+        
+        const userScore = userScores.get(userId);
+        userScore.attempts.push(data);
+        userScore.totalScore += data.percentage;
+        userScore.totalQuestions += data.totalQuestions;
+        userScore.totalCorrect += data.correctAnswers;
+      });
+
+      // Calculate averages and get user details
+      const leaderboardPromises = Array.from(userScores.values()).map(async (userScore) => {
+        const userDoc = await getDoc(doc(db, 'users', userScore.userId));
+        const userData = userDoc.data();
+        
+        return {
+          userId: userScore.userId,
+          displayName: userData?.displayName || 'Unknown',
+          attemptCount: userScore.attempts.length,
+          averageScore: Math.round(userScore.totalScore / userScore.attempts.length),
+          totalQuestions: userScore.totalQuestions,
+          totalCorrect: userScore.totalCorrect,
+          overallPercentage: Math.round((userScore.totalCorrect / userScore.totalQuestions) * 100)
+        };
+      });
+
+      const leaderboard = await Promise.all(leaderboardPromises);
+      
+      // Sort by average score
+      leaderboard.sort((a, b) => b.averageScore - a.averageScore);
+      
+      return leaderboard.slice(0, limitCount);
+    } catch (error) {
+      console.error('Error getting monthly leaderboard:', error);
+      throw error;
+    }
+  },
+
+  // Get all-time leaderboard
+  async getAllTimeLeaderboard(limitCount = 10) {
+    try {
+      const usersQuery = query(collection(db, 'users'));
+      const usersSnapshot = await getDocs(usersQuery);
+      
+      const users = [];
+      usersSnapshot.forEach((doc) => {
+        const data = doc.data();
+        if (data.totalAttempts > 0) {
+          users.push({
+            userId: doc.id,
+            displayName: data.displayName || 'Unknown',
+            totalAttempts: data.totalAttempts || 0,
+            totalQuestions: data.totalQuestions || 0,
+            totalCorrect: data.totalCorrect || 0,
+            overallPercentage: data.totalQuestions > 0 
+              ? Math.round((data.totalCorrect / data.totalQuestions) * 100)
+              : 0
+          });
+        }
+      });
+
+      // Sort by overall percentage
+      users.sort((a, b) => b.overallPercentage - a.overallPercentage);
+      
+      return users.slice(0, limitCount);
+    } catch (error) {
+      console.error('Error getting all-time leaderboard:', error);
+      throw error;
+    }
+  }
+};
+
+// ========== src/utils/quizStorage.js ==========
+
+// localStorage utility for managing quiz state across pages
+
+const STORAGE_KEYS = {
+  SELECTED_QUESTIONS: 'quiz_selected_questions',
+  USER_ANSWERS: 'quiz_user_answers',
+  QUESTION_TIMES: 'quiz_question_times',
+  FLAGGED: 'quiz_flagged',
+  CURRENT_INDEX: 'quiz_current_index',
+  TIMER_ENABLED: 'quiz_timer_enabled',
+  SESSION_START: 'quiz_session_start'
+};
+
+export const quizStorage = {
+  // Save selected questions for the quiz
+  saveSelectedQuestions: (questions) => {
+    localStorage.setItem(STORAGE_KEYS.SELECTED_QUESTIONS, JSON.stringify(questions));
+  },
+
+  getSelectedQuestions: () => {
+    const data = localStorage.getItem(STORAGE_KEYS.SELECTED_QUESTIONS);
+    return data ? JSON.parse(data) : null;
+  },
+
+  // Save user answers
+  saveUserAnswers: (answers) => {
+    localStorage.setItem(STORAGE_KEYS.USER_ANSWERS, JSON.stringify(answers));
+  },
+
+  getUserAnswers: () => {
+    const data = localStorage.getItem(STORAGE_KEYS.USER_ANSWERS);
+    return data ? JSON.parse(data) : {};
+  },
+
+  // Save question times
+  saveQuestionTimes: (times) => {
+    localStorage.setItem(STORAGE_KEYS.QUESTION_TIMES, JSON.stringify(times));
+  },
+
+  getQuestionTimes: () => {
+    const data = localStorage.getItem(STORAGE_KEYS.QUESTION_TIMES);
+    return data ? JSON.parse(data) : {};
+  },
+
+  // Save flagged questions
+  saveFlagged: (flaggedSet) => {
+    localStorage.setItem(STORAGE_KEYS.FLAGGED, JSON.stringify(Array.from(flaggedSet)));
+  },
+
+  getFlagged: () => {
+    const data = localStorage.getItem(STORAGE_KEYS.FLAGGED);
+    return data ? new Set(JSON.parse(data)) : new Set();
+  },
+
+  // Save current question index
+  saveCurrentIndex: (index) => {
+    localStorage.setItem(STORAGE_KEYS.CURRENT_INDEX, index.toString());
+  },
+
+  getCurrentIndex: () => {
+    const data = localStorage.getItem(STORAGE_KEYS.CURRENT_INDEX);
+    return data ? parseInt(data) : 0;
+  },
+
+  // Save timer settings
+  saveTimerEnabled: (enabled) => {
+    localStorage.setItem(STORAGE_KEYS.TIMER_ENABLED, JSON.stringify(enabled));
+  },
+
+  getTimerEnabled: () => {
+    const data = localStorage.getItem(STORAGE_KEYS.TIMER_ENABLED);
+    return data ? JSON.parse(data) : null;
+  },
+
+  saveSessionStart: (timestamp) => {
+    localStorage.setItem(STORAGE_KEYS.SESSION_START, timestamp.toString());
+  },
+
+  getSessionStart: () => {
+    const data = localStorage.getItem(STORAGE_KEYS.SESSION_START);
+    return data ? parseInt(data) : null;
+  },
+
+  // Clear all quiz data (use when starting new quiz)
+  clearQuizData: () => {
+    Object.values(STORAGE_KEYS).forEach(key => {
+      localStorage.removeItem(key);
+    });
+  },
+
+  // Clear only progress data (keep selected questions)
+  clearProgressData: () => {
+    localStorage.removeItem(STORAGE_KEYS.USER_ANSWERS);
+    localStorage.removeItem(STORAGE_KEYS.QUESTION_TIMES);
+    localStorage.removeItem(STORAGE_KEYS.FLAGGED);
+    localStorage.removeItem(STORAGE_KEYS.CURRENT_INDEX);
+    localStorage.removeItem(STORAGE_KEYS.TIMER_ENABLED);
+    localStorage.removeItem(STORAGE_KEYS.SESSION_START);
+  }
+};
+
+// ========== vite.config.js ==========
+
+import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
+import tailwindcss from '@tailwindcss/vite';
+
+export default defineConfig({
+  plugins: [react(), tailwindcss()],
+});

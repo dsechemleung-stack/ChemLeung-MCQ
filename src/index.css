@@ -1,0 +1,27 @@
+@import "tailwindcss";
+
+@theme {
+  --color-lab-blue: #1e3a8a;
+  --color-carbon-grey: #374151;
+  --color-chemistry-green: #10b981;
+}
+
+body {
+  @apply bg-slate-50 text-carbon-grey antialiased;
+}
+
+sub {
+  @apply text-[0.7em] align-baseline relative bottom-[-0.2em];
+}
+
+sup {
+  @apply text-[0.7em] align-baseline relative top-[-0.4em];
+}
+
+.prose {
+  @apply leading-relaxed;
+}
+/* This forces all dangerouslySetInnerHTML divs to respect Alt-Enter breaks */
+div[dangerouslySetInnerHTML] {
+  white-space: pre-line !important;
+}
