@@ -1,7 +1,12 @@
-import React from 'react';
-import { CheckCircle2, XCircle, BarChart3, RotateCcw, Info, Clock } from 'lucide-react';
+import React, { useState } from 'react';
+import { CheckCircle2, XCircle, BarChart3, RotateCcw, Info, Clock, Share2, MessageSquare } from 'lucide-react';
+import ShareableReport from './ShareableReport';
+import QuestionForum from './QuestionForum';
 
 export default function ResultsSummary({ questions, userAnswers, questionTimes, onRestart }) {
+  const [showShareReport, setShowShareReport] = useState(false);
+  const [forumQuestion, setForumQuestion] = useState(null);
+
   // 1. Calculate Score
   const total = questions.length;
   const correctCount = questions.reduce((acc, q) => {
@@ -114,6 +119,25 @@ export default function ResultsSummary({ questions, userAnswers, questionTimes, 
         </div>
       </div>
 
+      {/* Action Buttons */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <button
+          onClick={() => setShowShareReport(true)}
+          className="w-full py-4 flex items-center justify-center gap-2 bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-xl font-bold hover:opacity-90 transition-all shadow-lg"
+        >
+          <Share2 size={20} />
+          Share Report Card
+        </button>
+
+        <button
+          onClick={onRestart}
+          className="w-full py-4 flex items-center justify-center gap-2 bg-carbon-grey text-white rounded-xl font-bold hover:bg-slate-800 transition-all shadow-lg"
+        >
+          <RotateCcw size={20} />
+          Start New Session
+        </button>
+      </div>
+
       {/* Detailed Review List */}
       <div className="space-y-4">
         <h3 className="text-xl font-bold flex items-center gap-2">
@@ -126,19 +150,32 @@ export default function ResultsSummary({ questions, userAnswers, questionTimes, 
           return (
             <div key={q.ID} className={`p-6 rounded-xl border-l-4 bg-white shadow-sm ${isCorrect ? 'border-chemistry-green' : 'border-red-500'}`}>
               <div className="flex justify-between items-start mb-4">
-                <div>
+                <div className="flex items-center gap-3">
                   <span className="text-2xl font-black text-slate-700">Question {index + 1}</span>
                   {timeSpent && (
-                    <div className="text-sm text-slate-500 flex items-center gap-1 mt-1 bg-slate-100 px-3 py-1 rounded-full inline-flex ml-3">
+                    <div className="text-sm text-slate-500 flex items-center gap-1 bg-slate-100 px-3 py-1 rounded-full">
                       <Clock size={14} />
                       <span className="font-semibold">{formatTime(timeSpent)}</span>
                     </div>
                   )}
                 </div>
-                {isCorrect ? 
-                  <CheckCircle2 className="text-chemistry-green" size={24} /> : 
-                  <XCircle className="text-red-500" size={24} />
-                }
+                <div className="flex items-center gap-2">
+                  {/* Forum Button */}
+                  <button
+                    onClick={() => setForumQuestion(q)}
+                    className="flex items-center gap-2 px-4 py-2 bg-purple-100 text-purple-700 rounded-lg font-bold hover:bg-purple-200 transition-all"
+                    title="Discuss this question"
+                  >
+                    <MessageSquare size={16} />
+                    <span className="hidden sm:inline">Discuss</span>
+                  </button>
+                  
+                  {/* Status Icon */}
+                  {isCorrect ? 
+                    <CheckCircle2 className="text-chemistry-green" size={24} /> : 
+                    <XCircle className="text-red-500" size={24} />
+                  }
+                </div>
               </div>
               
               <div className="prose prose-slate max-w-none mb-4 text-lg" dangerouslySetInnerHTML={{ __html: q.Question }} />
@@ -165,13 +202,23 @@ export default function ResultsSummary({ questions, userAnswers, questionTimes, 
         })}
       </div>
 
-      <button
-        onClick={onRestart}
-        className="w-full py-4 flex items-center justify-center gap-2 bg-carbon-grey text-white rounded-xl font-bold hover:bg-slate-800 transition-all shadow-lg active:scale-[0.98]"
-      >
-        <RotateCcw size={20} />
-        Start New Session
-      </button>
+      {/* Share Report Modal */}
+      {showShareReport && (
+        <ShareableReport
+          questions={questions}
+          userAnswers={userAnswers}
+          questionTimes={questionTimes}
+          onClose={() => setShowShareReport(false)}
+        />
+      )}
+
+      {/* Forum Modal */}
+      {forumQuestion && (
+        <QuestionForum
+          question={forumQuestion}
+          onClose={() => setForumQuestion(null)}
+        />
+      )}
     </div>
   );
 }

@@ -1,86 +1,89 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import { useLanguage } from '../contexts/LanguageContext';
 import { quizService } from '../services/quizService';
-import { Trophy, Clock, Target, TrendingUp, Calendar, LogOut, Play, AlertCircle, RefreshCw } from 'lucide-react';
+import AttemptDetailModal from '../components/AttemptDetailModal';
+import {
+  Trophy, Clock, Target, TrendingUp, Calendar, LogOut,
+  Play, AlertCircle, RefreshCw, Flame, BookOpen, MessageSquare,
+  ChevronRight,
+} from 'lucide-react';
 
 export default function DashboardPage() {
   const { currentUser, userProfile, logout } = useAuth();
+  const { t, isEnglish } = useLanguage();
   const [attempts, setAttempts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [studyStreak, setStudyStreak] = useState(0);
+  const [selectedAttempt, setSelectedAttempt] = useState(null);
   const navigate = useNavigate();
 
   useEffect(() => {
     loadAttempts();
+    calculateStudyStreak();
   }, [currentUser]);
 
   async function loadAttempts() {
-    if (!currentUser) {
-      setLoading(false);
-      return;
-    }
-
+    if (!currentUser) { setLoading(false); return; }
     try {
       setError(null);
       setLoading(true);
-      
-      console.log('📊 Dashboard: Loading attempts for user:', currentUser.uid);
       const userAttempts = await quizService.getUserAttempts(currentUser.uid, 10);
-      
-      console.log('📊 Dashboard: Loaded attempts:', userAttempts.length);
       setAttempts(userAttempts);
-      
-      if (userAttempts.length === 0) {
-        console.log('⚠️ Dashboard: No attempts found in database');
-      }
     } catch (err) {
-      console.error('❌ Dashboard: Error loading attempts:', err);
       setError(err.message);
     } finally {
       setLoading(false);
     }
   }
 
-  async function handleLogout() {
+  async function calculateStudyStreak() {
+    if (!currentUser) return;
     try {
-      await logout();
-      navigate('/login');
-    } catch (error) {
-      console.error('Failed to log out:', error);
-    }
+      const allAttempts = await quizService.getUserAttempts(currentUser.uid, 100);
+      if (!allAttempts.length) { setStudyStreak(0); return; }
+      const uniqueDates = [...new Set(allAttempts.map(a => new Date(a.timestamp).toDateString()))]
+        .sort((a, b) => new Date(b) - new Date(a));
+      let streak = 0;
+      const today = new Date().toDateString();
+      const yesterday = new Date(Date.now() - 86400000).toDateString();
+      if (uniqueDates[0] === today || uniqueDates[0] === yesterday) {
+        streak = 1;
+        for (let i = 1; i < uniqueDates.length; i++) {
+          const diff = Math.floor((new Date(uniqueDates[i - 1]) - new Date(uniqueDates[i])) / 86400000);
+          if (diff === 1) streak++; else break;
+        }
+      }
+      setStudyStreak(streak);
+    } catch { setStudyStreak(0); }
   }
 
-  const formatDate = (isoString) => {
-    const date = new Date(isoString);
-    return date.toLocaleDateString('en-GB', { 
-      day: '2-digit', 
-      month: 'short', 
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
+  async function handleLogout() {
+    try { await logout(); navigate('/login'); } catch (e) { console.error(e); }
+  }
+
+  const formatDate = (iso) =>
+    new Date(iso).toLocaleDateString('en-GB', {
+      day: '2-digit', month: 'short', year: 'numeric',
+      hour: '2-digit', minute: '2-digit',
     });
-  };
 
   const formatTime = (ms) => {
     if (!ms) return 'N/A';
-    const seconds = Math.floor(ms / 1000);
-    const minutes = Math.floor(seconds / 60);
-    const hrs = Math.floor(minutes / 60);
-    if (hrs > 0) {
-      return `${hrs}h ${minutes % 60}m`;
-    } else if (minutes > 0) {
-      return `${minutes}m ${seconds % 60}s`;
-    }
-    return `${seconds}s`;
+    const s = Math.floor(ms / 1000), m = Math.floor(s / 60), h = Math.floor(m / 60);
+    if (h > 0) return `${h}h ${m % 60}m`;
+    if (m > 0) return `${m}m ${s % 60}s`;
+    return `${s}s`;
   };
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-screen">
+      <div className="flex items-center justify-center h-screen bg-gray-50">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-lab-blue mx-auto mb-4"></div>
-          <p className="text-slate-600">Loading your dashboard...</p>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-500 mx-auto mb-4"></div>
+          <p className="text-slate-700 font-semibold">Loading dashboard...</p>
         </div>
       </div>
     );
@@ -91,96 +94,119 @@ export default function DashboardPage() {
     : 0;
 
   return (
-    <div className="max-w-6xl mx-auto space-y-6">
-      {/* Header with User Info */}
-      <div className="bg-gradient-to-r from-lab-blue to-blue-700 rounded-2xl shadow-xl p-8 text-white">
-        <div className="flex justify-between items-start">
+    <div className="max-w-6xl mx-auto space-y-6 p-4">
+      {/* HEADER */}
+      <div className="bg-white rounded-2xl shadow-lg p-8 border-2 border-indigo-100">
+        <div className="flex justify-between items-start mb-6">
           <div>
-            <h1 className="text-3xl font-black mb-2">
-              Welcome back, {currentUser?.displayName}!
+            <h1 className="text-4xl font-black text-slate-800 mb-2 leading-tight">
+              {isEnglish ? 'Welcome back' : '歡迎回來'}, {currentUser?.displayName}!
             </h1>
-            <p className="text-blue-100">
-              {currentUser?.email}
-            </p>
+            <p className="text-lg text-slate-600 font-medium">{currentUser?.email}</p>
           </div>
           <button
             onClick={handleLogout}
-            className="flex items-center gap-2 px-4 py-2 bg-white bg-opacity-20 hover:bg-opacity-30 rounded-lg font-bold transition-all"
+            className="flex items-center gap-2 px-4 py-2 bg-rose-500 hover:bg-rose-600 text-white rounded-xl font-bold transition-all shadow-md"
           >
             <LogOut size={18} />
-            Logout
+            {isEnglish ? 'Logout' : '登出'}
           </button>
         </div>
 
-        {/* Stats Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mt-8">
-          <div className="bg-white bg-opacity-10 backdrop-blur rounded-xl p-4">
+        {/* STATS GRID */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+          <div className="bg-gradient-to-br from-amber-100 to-amber-200 rounded-xl p-5 shadow-sm border border-amber-200">
             <div className="flex items-center gap-2 mb-2">
-              <Trophy className="text-yellow-300" size={20} />
-              <span className="text-sm font-semibold text-blue-100">Total Attempts</span>
+              <Trophy className="text-amber-700" size={20} />
+              <span className="text-xs font-bold text-amber-800 uppercase tracking-wide">
+                {isEnglish ? 'Total Attempts' : '總測驗次數'}
+              </span>
             </div>
-            <div className="text-3xl font-black">{userProfile?.totalAttempts || 0}</div>
+            <div className="text-4xl font-black text-amber-900">{userProfile?.totalAttempts || 0}</div>
           </div>
-
-          <div className="bg-white bg-opacity-10 backdrop-blur rounded-xl p-4">
+          <div className="bg-gradient-to-br from-emerald-100 to-emerald-200 rounded-xl p-5 shadow-sm border border-emerald-200">
             <div className="flex items-center gap-2 mb-2">
-              <Target className="text-green-300" size={20} />
-              <span className="text-sm font-semibold text-blue-100">Overall Accuracy</span>
+              <Target className="text-emerald-700" size={20} />
+              <span className="text-xs font-bold text-emerald-800 uppercase tracking-wide">
+                {isEnglish ? 'Overall Accuracy' : '整體準確率'}
+              </span>
             </div>
-            <div className="text-3xl font-black">{overallAccuracy}%</div>
+            <div className="text-4xl font-black text-emerald-900">{overallAccuracy}%</div>
           </div>
-
-          <div className="bg-white bg-opacity-10 backdrop-blur rounded-xl p-4">
+          <div className="bg-gradient-to-br from-purple-100 to-purple-200 rounded-xl p-5 shadow-sm border border-purple-200">
             <div className="flex items-center gap-2 mb-2">
-              <TrendingUp className="text-purple-300" size={20} />
-              <span className="text-sm font-semibold text-blue-100">Questions Solved</span>
+              <TrendingUp className="text-purple-700" size={20} />
+              <span className="text-xs font-bold text-purple-800 uppercase tracking-wide">
+                {isEnglish ? 'Questions Solved' : '已完成題目'}
+              </span>
             </div>
-            <div className="text-3xl font-black">{userProfile?.totalQuestions || 0}</div>
+            <div className="text-4xl font-black text-purple-900">{userProfile?.totalQuestions || 0}</div>
           </div>
-
-          <div className="bg-white bg-opacity-10 backdrop-blur rounded-xl p-4">
+          <div className="bg-gradient-to-br from-blue-100 to-blue-200 rounded-xl p-5 shadow-sm border border-blue-200">
             <div className="flex items-center gap-2 mb-2">
-              <Calendar className="text-pink-300" size={20} />
-              <span className="text-sm font-semibold text-blue-100">Correct Answers</span>
+              <Calendar className="text-blue-700" size={20} />
+              <span className="text-xs font-bold text-blue-800 uppercase tracking-wide">
+                {isEnglish ? 'Correct Answers' : '正確答案'}
+              </span>
             </div>
-            <div className="text-3xl font-black">{userProfile?.totalCorrect || 0}</div>
+            <div className="text-4xl font-black text-blue-900">{userProfile?.totalCorrect || 0}</div>
+          </div>
+          <div className="bg-gradient-to-br from-orange-100 to-orange-200 rounded-xl p-5 shadow-sm border border-orange-200">
+            <div className="flex items-center gap-2 mb-2">
+              <Flame className="text-orange-700" size={20} />
+              <span className="text-xs font-bold text-orange-800 uppercase tracking-wide">
+                {isEnglish ? 'Study Streak' : '連續學習天數'}
+              </span>
+            </div>
+            <div className="text-4xl font-black text-orange-900 flex items-baseline gap-2">
+              {studyStreak}
+              <span className="text-base font-bold text-orange-700">{isEnglish ? 'days' : '天'}</span>
+            </div>
           </div>
         </div>
       </div>
 
-      {/* Action Buttons */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      {/* ACTION BUTTONS */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <button
           onClick={() => navigate('/')}
-          className="bg-chemistry-green text-white rounded-xl p-6 font-bold text-lg shadow-lg hover:opacity-90 transition-all flex items-center justify-center gap-3 active:scale-95"
+          className="bg-gradient-to-r from-indigo-400 to-indigo-500 text-white rounded-xl p-6 font-bold text-lg shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-3 active:scale-95"
         >
           <Play fill="currentColor" size={24} />
-          Start New Quiz
+          {isEnglish ? 'Start New Quiz' : '開始新測驗'}
         </button>
-
         <button
-          onClick={() => navigate('/leaderboard')}
-          className="bg-amber-500 text-white rounded-xl p-6 font-bold text-lg shadow-lg hover:opacity-90 transition-all flex items-center justify-center gap-3 active:scale-95"
+          onClick={() => navigate('/forum')}
+          className="bg-gradient-to-r from-purple-400 to-purple-500 text-white rounded-xl p-6 font-bold text-lg shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-3 active:scale-95"
         >
-          <Trophy size={24} />
-          View Leaderboard
+          <MessageSquare size={24} />
+          {isEnglish ? 'Browse Forum' : '瀏覽討論區'}
+        </button>
+        <button
+          onClick={() => navigate('/notebook')}
+          className="bg-gradient-to-r from-rose-400 to-rose-500 text-white rounded-xl p-6 font-bold text-lg shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-3 active:scale-95"
+        >
+          <BookOpen size={24} />
+          {isEnglish ? 'Mistake Notebook' : '錯題簿'}
         </button>
       </div>
 
-      {/* Debug/Error Section */}
+      {/* Error */}
       {error && (
-        <div className="bg-red-50 border-2 border-red-200 rounded-xl p-4">
+        <div className="bg-red-50 border-2 border-red-200 rounded-xl p-5">
           <div className="flex items-start gap-3">
-            <AlertCircle className="text-red-500 flex-shrink-0 mt-1" size={20} />
+            <AlertCircle className="text-red-600 flex-shrink-0 mt-1" size={20} />
             <div className="flex-1">
-              <h3 className="font-bold text-red-900 mb-1">Error Loading Attempts</h3>
+              <h3 className="font-bold text-red-900 mb-1">
+                {isEnglish ? 'Error Loading Attempts' : '載入記錄失敗'}
+              </h3>
               <p className="text-sm text-red-800 mb-3">{error}</p>
               <button
                 onClick={loadAttempts}
-                className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg font-semibold hover:bg-red-700 transition-all"
+                className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg font-bold hover:bg-red-700 transition-all"
               >
                 <RefreshCw size={16} />
-                Retry
+                {isEnglish ? 'Retry' : '重試'}
               </button>
             </div>
           </div>
@@ -188,98 +214,96 @@ export default function DashboardPage() {
       )}
 
       {/* Recent Attempts */}
-      <div className="bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden">
-        <div className="bg-slate-50 p-6 border-b flex items-center justify-between">
+      <div className="bg-white rounded-2xl shadow-lg border-2 border-slate-100 overflow-hidden">
+        <div className="bg-slate-50 p-5 border-b-2 border-indigo-100 flex items-center justify-between">
           <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
-            <Clock className="text-lab-blue" size={24} />
-            Recent Attempts
+            <Clock className="text-indigo-600" size={24} />
+            {isEnglish ? 'Recent Attempts' : '最近記錄'}
           </h2>
-          <button
-            onClick={loadAttempts}
-            className="text-sm text-lab-blue hover:underline flex items-center gap-1"
-          >
-            <RefreshCw size={14} />
-            Refresh
-          </button>
+          <div className="flex items-center gap-3">
+            <span className="text-xs text-slate-400 italic hidden sm:block">
+              {isEnglish ? 'Click any row to see full analysis' : '點擊記錄查看完整分析'}
+            </span>
+            <button
+              onClick={loadAttempts}
+              className="text-sm text-indigo-600 hover:text-indigo-700 font-bold hover:underline flex items-center gap-1"
+            >
+              <RefreshCw size={14} />
+              {isEnglish ? 'Refresh' : '刷新'}
+            </button>
+          </div>
         </div>
 
         <div className="p-6">
           {attempts.length === 0 ? (
             <div className="text-center py-12">
               <AlertCircle className="w-16 h-16 text-slate-300 mx-auto mb-4" />
-              <p className="text-slate-400 text-lg mb-2">No attempts yet!</p>
+              <p className="text-slate-600 text-lg mb-2 font-semibold">
+                {isEnglish ? 'No attempts yet!' : '尚無記錄！'}
+              </p>
               <p className="text-slate-500 text-sm mb-4">
-                Complete a quiz to see your results here
+                {isEnglish ? 'Complete a quiz to see your results here' : '完成測驗後記錄將顯示於此'}
               </p>
               <button
                 onClick={() => navigate('/')}
-                className="px-6 py-3 bg-lab-blue text-white rounded-lg font-bold hover:bg-blue-800 transition-all"
+                className="px-6 py-3 bg-indigo-500 text-white rounded-xl font-bold hover:bg-indigo-600 transition-all shadow-md"
               >
-                Take Your First Quiz
+                {isEnglish ? 'Take Your First Quiz' : '開始第一個測驗'}
               </button>
-              <div className="mt-6 pt-6 border-t border-slate-200">
-                <button
-                  onClick={() => navigate('/test-firebase')}
-                  className="text-sm text-purple-600 hover:underline"
-                >
-                  🔧 Data not showing? Click here to debug
-                </button>
-              </div>
             </div>
           ) : (
             <div className="space-y-3">
               {attempts.map((attempt) => (
-                <div
+                <button
                   key={attempt.id}
-                  className="flex items-center justify-between p-4 rounded-xl border-2 border-slate-100 hover:border-lab-blue transition-all"
+                  onClick={() => setSelectedAttempt(attempt)}
+                  className="w-full flex items-center justify-between p-4 rounded-xl border-2 border-slate-100 hover:border-indigo-300 hover:bg-indigo-50 transition-all hover:shadow-md text-left group"
                 >
                   <div className="flex items-center gap-4">
-                    <div className={`w-16 h-16 rounded-xl flex items-center justify-center font-black text-2xl ${
-                      attempt.percentage >= 70 
-                        ? 'bg-green-100 text-green-700'
+                    <div className={`w-16 h-16 rounded-xl flex items-center justify-center font-black text-2xl shadow-sm ${
+                      attempt.percentage >= 70
+                        ? 'bg-gradient-to-br from-emerald-100 to-emerald-200 text-emerald-800 border-2 border-emerald-300'
                         : attempt.percentage >= 50
-                        ? 'bg-yellow-100 text-yellow-700'
-                        : 'bg-red-100 text-red-700'
+                        ? 'bg-gradient-to-br from-amber-100 to-amber-200 text-amber-800 border-2 border-amber-300'
+                        : 'bg-gradient-to-br from-rose-100 to-rose-200 text-rose-800 border-2 border-rose-300'
                     }`}>
                       {attempt.percentage}%
                     </div>
-                    
                     <div>
-                      <div className="font-bold text-slate-800">
-                        {attempt.correctAnswers}/{attempt.totalQuestions} correct
+                      <div className="font-bold text-lg text-slate-800">
+                        {attempt.correctAnswers}/{attempt.totalQuestions} {isEnglish ? 'correct' : '正確'}
                       </div>
-                      <div className="text-sm text-slate-500">
-                        {formatDate(attempt.timestamp)}
-                      </div>
+                      <div className="text-sm text-slate-600 font-medium">{formatDate(attempt.timestamp)}</div>
                       {attempt.topics && (
-                        <div className="text-xs text-slate-400 mt-1">
-                          Topics: {attempt.topics.join(', ')}
+                        <div className="text-xs text-slate-500 mt-1 truncate max-w-xs">
+                          {attempt.topics.join(', ')}
                         </div>
                       )}
                     </div>
                   </div>
-
-                  {attempt.timeSpent && (
-                    <div className="text-right">
-                      <div className="text-sm font-semibold text-slate-600">
-                        ⏱️ {formatTime(attempt.timeSpent)}
+                  <div className="flex items-center gap-3">
+                    {attempt.timeSpent && (
+                      <div className="text-right hidden sm:block">
+                        <div className="text-sm font-bold text-slate-700">⏱️ {formatTime(attempt.timeSpent)}</div>
+                        <div className="text-xs text-slate-500">{isEnglish ? 'Time spent' : '用時'}</div>
                       </div>
-                      <div className="text-xs text-slate-400">
-                        Time spent
-                      </div>
-                    </div>
-                  )}
-                </div>
+                    )}
+                    <ChevronRight size={20} className="text-slate-400 group-hover:text-indigo-500 transition-colors" />
+                  </div>
+                </button>
               ))}
             </div>
           )}
         </div>
       </div>
 
-      {/* Debug Info (only in development) */}
-      <div className="bg-slate-100 border border-slate-300 rounded-lg p-3 text-xs font-mono text-slate-600">
-        <strong>Debug Info:</strong> User ID: {currentUser?.uid} | Profile Attempts: {userProfile?.totalAttempts || 0} | Fetched: {attempts.length}
-      </div>
+      {/* Attempt Detail Modal */}
+      {selectedAttempt && (
+        <AttemptDetailModal
+          attempt={selectedAttempt}
+          onClose={() => setSelectedAttempt(null)}
+        />
+      )}
     </div>
   );
 }

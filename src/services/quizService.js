@@ -2,13 +2,13 @@ import { doc, setDoc, collection, addDoc, updateDoc, increment, query, where, or
 import { db } from '../firebase/config';
 
 export const quizService = {
-  // Save a quiz attempt
+  // Save a quiz attempt WITH questions data for Mistake Notebook
   async saveAttempt(userId, attemptData) {
     try {
       const attemptRef = await addDoc(collection(db, 'attempts'), {
         userId: userId,
         timestamp: new Date().toISOString(),
-        date: new Date().toISOString().split('T')[0], // For daily grouping
+        date: new Date().toISOString().split('T')[0],
         score: attemptData.score,
         totalQuestions: attemptData.totalQuestions,
         correctAnswers: attemptData.correctAnswers,
@@ -16,16 +16,16 @@ export const quizService = {
         topics: attemptData.topics,
         timeSpent: attemptData.timeSpent || null,
         questionTimes: attemptData.questionTimes || null,
-        answers: attemptData.answers || null
+        answers: attemptData.answers || null,
+        questions: attemptData.questions || null,
       });
 
-      // Update user statistics
       const userRef = doc(db, 'users', userId);
       await updateDoc(userRef, {
         totalAttempts: increment(1),
         totalQuestions: increment(attemptData.totalQuestions),
         totalCorrect: increment(attemptData.correctAnswers),
-        lastAttemptDate: new Date().toISOString()
+        lastAttemptDate: new Date().toISOString(),
       });
 
       return attemptRef.id;
@@ -42,18 +42,11 @@ export const quizService = {
         collection(db, 'attempts'),
         where('userId', '==', userId),
         orderBy('timestamp', 'desc'),
-        limit(limitCount)
+        limit(limitCount),
       );
-
       const querySnapshot = await getDocs(q);
       const attempts = [];
-      querySnapshot.forEach((doc) => {
-        attempts.push({
-          id: doc.id,
-          ...doc.data()
-        });
-      });
-
+      querySnapshot.forEach((doc) => attempts.push({ id: doc.id, ...doc.data() }));
       return attempts;
     } catch (error) {
       console.error('Error getting user attempts:', error);
@@ -61,67 +54,90 @@ export const quizService = {
     }
   },
 
+  // ─── Helper: compute streak for a user given their attempts ───────────────
+  _computeStreak(attempts) {
+    if (!attempts.length) return 0;
+    const uniqueDates = [...new Set(attempts.map(a => new Date(a.timestamp).toDateString()))]
+      .sort((a, b) => new Date(b) - new Date(a));
+    const today = new Date().toDateString();
+    const yesterday = new Date(Date.now() - 86400000).toDateString();
+    if (uniqueDates[0] !== today && uniqueDates[0] !== yesterday) return 0;
+    let streak = 1;
+    for (let i = 1; i < uniqueDates.length; i++) {
+      const diff = Math.floor((new Date(uniqueDates[i - 1]) - new Date(uniqueDates[i])) / 86400000);
+      if (diff === 1) streak++; else break;
+    }
+    return streak;
+  },
+
+  // ─── Shared leaderboard builder ────────────────────────────────────────────
+  async _buildLeaderboard(attemptsQuery, limitCount, sortField = 'averageScore') {
+    const querySnapshot = await getDocs(attemptsQuery);
+
+    // Group by user
+    const userMap = new Map();
+    querySnapshot.forEach((doc) => {
+      const data = doc.data();
+      const uid = data.userId;
+      if (!userMap.has(uid)) {
+        userMap.set(uid, { userId: uid, attempts: [], totalScore: 0, totalQuestions: 0, totalCorrect: 0 });
+      }
+      const u = userMap.get(uid);
+      u.attempts.push(data);
+      u.totalScore += data.percentage;
+      u.totalQuestions += data.totalQuestions;
+      u.totalCorrect += data.correctAnswers;
+    });
+
+    // Fetch user profiles + compute streaks
+    const leaderboard = await Promise.all(
+      Array.from(userMap.values()).map(async (u) => {
+        const userDoc = await getDoc(doc(db, 'users', u.userId));
+        const userData = userDoc.data() || {};
+
+        // Streak: fetch all-time attempts for streak calculation
+        let streak = 0;
+        try {
+          const allQ = query(
+            collection(db, 'attempts'),
+            where('userId', '==', u.userId),
+            orderBy('timestamp', 'desc'),
+            limit(100),
+          );
+          const allSnap = await getDocs(allQ);
+          const allAttempts = [];
+          allSnap.forEach(d => allAttempts.push(d.data()));
+          streak = this._computeStreak(allAttempts);
+        } catch (_) { /* streak stays 0 */ }
+
+        return {
+          userId: u.userId,
+          displayName: userData.displayName || 'Unknown',
+          level: userData.level || null,          // S4 / S5 / S6
+          attemptCount: u.attempts.length,
+          averageScore: Math.round(u.totalScore / u.attempts.length),
+          totalQuestions: u.totalQuestions,
+          totalCorrect: u.totalCorrect,
+          overallPercentage: Math.round((u.totalCorrect / u.totalQuestions) * 100),
+          streak,
+        };
+      })
+    );
+
+    leaderboard.sort((a, b) => b[sortField] - a[sortField]);
+    return leaderboard.slice(0, limitCount);
+  },
+
   // Get weekly leaderboard
   async getWeeklyLeaderboard(limitCount = 10) {
     try {
-      const weekAgo = new Date();
-      weekAgo.setDate(weekAgo.getDate() - 7);
-      const weekAgoISO = weekAgo.toISOString();
-
+      const weekAgo = new Date(); weekAgo.setDate(weekAgo.getDate() - 7);
       const q = query(
         collection(db, 'attempts'),
-        where('timestamp', '>=', weekAgoISO),
-        orderBy('timestamp', 'desc')
+        where('timestamp', '>=', weekAgo.toISOString()),
+        orderBy('timestamp', 'desc'),
       );
-
-      const querySnapshot = await getDocs(q);
-      
-      // Group by user and calculate averages
-      const userScores = new Map();
-      
-      querySnapshot.forEach((doc) => {
-        const data = doc.data();
-        const userId = data.userId;
-        
-        if (!userScores.has(userId)) {
-          userScores.set(userId, {
-            userId: userId,
-            attempts: [],
-            totalScore: 0,
-            totalQuestions: 0,
-            totalCorrect: 0
-          });
-        }
-        
-        const userScore = userScores.get(userId);
-        userScore.attempts.push(data);
-        userScore.totalScore += data.percentage;
-        userScore.totalQuestions += data.totalQuestions;
-        userScore.totalCorrect += data.correctAnswers;
-      });
-
-      // Calculate averages and get user details
-      const leaderboardPromises = Array.from(userScores.values()).map(async (userScore) => {
-        const userDoc = await getDoc(doc(db, 'users', userScore.userId));
-        const userData = userDoc.data();
-        
-        return {
-          userId: userScore.userId,
-          displayName: userData?.displayName || 'Unknown',
-          attemptCount: userScore.attempts.length,
-          averageScore: Math.round(userScore.totalScore / userScore.attempts.length),
-          totalQuestions: userScore.totalQuestions,
-          totalCorrect: userScore.totalCorrect,
-          overallPercentage: Math.round((userScore.totalCorrect / userScore.totalQuestions) * 100)
-        };
-      });
-
-      const leaderboard = await Promise.all(leaderboardPromises);
-      
-      // Sort by average score
-      leaderboard.sort((a, b) => b.averageScore - a.averageScore);
-      
-      return leaderboard.slice(0, limitCount);
+      return await this._buildLeaderboard(q, limitCount, 'averageScore');
     } catch (error) {
       console.error('Error getting weekly leaderboard:', error);
       throw error;
@@ -131,64 +147,13 @@ export const quizService = {
   // Get monthly leaderboard
   async getMonthlyLeaderboard(limitCount = 10) {
     try {
-      const monthAgo = new Date();
-      monthAgo.setMonth(monthAgo.getMonth() - 1);
-      const monthAgoISO = monthAgo.toISOString();
-
+      const monthAgo = new Date(); monthAgo.setMonth(monthAgo.getMonth() - 1);
       const q = query(
         collection(db, 'attempts'),
-        where('timestamp', '>=', monthAgoISO),
-        orderBy('timestamp', 'desc')
+        where('timestamp', '>=', monthAgo.toISOString()),
+        orderBy('timestamp', 'desc'),
       );
-
-      const querySnapshot = await getDocs(q);
-      
-      // Group by user and calculate averages
-      const userScores = new Map();
-      
-      querySnapshot.forEach((doc) => {
-        const data = doc.data();
-        const userId = data.userId;
-        
-        if (!userScores.has(userId)) {
-          userScores.set(userId, {
-            userId: userId,
-            attempts: [],
-            totalScore: 0,
-            totalQuestions: 0,
-            totalCorrect: 0
-          });
-        }
-        
-        const userScore = userScores.get(userId);
-        userScore.attempts.push(data);
-        userScore.totalScore += data.percentage;
-        userScore.totalQuestions += data.totalQuestions;
-        userScore.totalCorrect += data.correctAnswers;
-      });
-
-      // Calculate averages and get user details
-      const leaderboardPromises = Array.from(userScores.values()).map(async (userScore) => {
-        const userDoc = await getDoc(doc(db, 'users', userScore.userId));
-        const userData = userDoc.data();
-        
-        return {
-          userId: userScore.userId,
-          displayName: userData?.displayName || 'Unknown',
-          attemptCount: userScore.attempts.length,
-          averageScore: Math.round(userScore.totalScore / userScore.attempts.length),
-          totalQuestions: userScore.totalQuestions,
-          totalCorrect: userScore.totalCorrect,
-          overallPercentage: Math.round((userScore.totalCorrect / userScore.totalQuestions) * 100)
-        };
-      });
-
-      const leaderboard = await Promise.all(leaderboardPromises);
-      
-      // Sort by average score
-      leaderboard.sort((a, b) => b.averageScore - a.averageScore);
-      
-      return leaderboard.slice(0, limitCount);
+      return await this._buildLeaderboard(q, limitCount, 'averageScore');
     } catch (error) {
       console.error('Error getting monthly leaderboard:', error);
       throw error;
@@ -200,31 +165,52 @@ export const quizService = {
     try {
       const usersQuery = query(collection(db, 'users'));
       const usersSnapshot = await getDocs(usersQuery);
-      
+
       const users = [];
-      usersSnapshot.forEach((doc) => {
-        const data = doc.data();
+      const streakPromises = [];
+
+      usersSnapshot.forEach((docSnap) => {
+        const data = docSnap.data();
         if (data.totalAttempts > 0) {
-          users.push({
-            userId: doc.id,
+          const entry = {
+            userId: docSnap.id,
             displayName: data.displayName || 'Unknown',
+            level: data.level || null,
             totalAttempts: data.totalAttempts || 0,
             totalQuestions: data.totalQuestions || 0,
             totalCorrect: data.totalCorrect || 0,
-            overallPercentage: data.totalQuestions > 0 
+            overallPercentage: data.totalQuestions > 0
               ? Math.round((data.totalCorrect / data.totalQuestions) * 100)
-              : 0
-          });
+              : 0,
+            streak: 0,
+          };
+          users.push(entry);
+
+          // Queue streak fetch
+          streakPromises.push(
+            (async () => {
+              try {
+                const q = query(
+                  collection(db, 'attempts'),
+                  where('userId', '==', docSnap.id),
+                  orderBy('timestamp', 'desc'),
+                  limit(100),
+                );
+                const snap = await getDocs(q);
+                const arr = []; snap.forEach(d => arr.push(d.data()));
+                entry.streak = this._computeStreak(arr);
+              } catch (_) {}
+            })()
+          );
         }
       });
 
-      // Sort by overall percentage
+      await Promise.all(streakPromises);
       users.sort((a, b) => b.overallPercentage - a.overallPercentage);
-      
       return users.slice(0, limitCount);
     } catch (error) {
       console.error('Error getting all-time leaderboard:', error);
       throw error;
     }
-  }
+  },
 };

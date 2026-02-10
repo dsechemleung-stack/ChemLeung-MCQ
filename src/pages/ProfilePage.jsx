@@ -1,19 +1,65 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { updateProfile } from 'firebase/auth';
 import { doc, updateDoc } from 'firebase/firestore';
 import { db } from '../firebase/config';
-import { User, GraduationCap, Mail, Calendar, Save, ArrowLeft, Trophy, Target } from 'lucide-react';
+import { User, GraduationCap, Mail, Calendar, Save, ArrowLeft, Trophy, Target, BookOpen, Lock, Unlock } from 'lucide-react';
+import { useQuizData } from '../hooks/useQuizData';
+
+const SHEET_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTK36yaUN-NMCkQNT-DAHgc6FMZPjUc0Yv3nYEK4TA9W2qE9V1TqVD10Tq98-wXQoAvKOZlwGWRSDkU/pub?gid=1182550140&single=true&output=csv';
 
 export default function ProfilePage() {
   const { currentUser, userProfile, loadUserProfile } = useAuth();
   const navigate = useNavigate();
+  const { questions, loading: questionsLoading } = useQuizData(SHEET_URL);
   
   const [displayName, setDisplayName] = useState(currentUser?.displayName || '');
   const [level, setLevel] = useState(userProfile?.level || 'S5');
+  const [learnedUpTo, setLearnedUpTo] = useState(userProfile?.learnedUpTo || '');
+  const [topicExceptions, setTopicExceptions] = useState(userProfile?.topicExceptions || []);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState({ type: '', text: '' });
+
+  // Extract all unique topics from questions
+  const allTopics = useMemo(() => {
+    if (!questions || questions.length === 0) return [];
+    return [...new Set(questions.map(q => q.Topic))]
+      .filter(t => t && t !== "Uncategorized")
+      .sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
+  }, [questions]);
+
+  // Get currently available topics based on learnedUpTo and exceptions
+  const availableTopics = useMemo(() => {
+    if (!learnedUpTo) return [];
+    
+    const available = [];
+    for (const topic of allTopics) {
+      const topicNum = topic.match(/^\d+/)?.[0];
+      if (topicNum && topicNum <= learnedUpTo && !topicExceptions.includes(topic)) {
+        available.push(topic);
+      }
+    }
+    return available;
+  }, [allTopics, learnedUpTo, topicExceptions]);
+
+  // Get topics that are within learned range (for exceptions UI)
+  const learnedRangeTopics = useMemo(() => {
+    if (!learnedUpTo) return [];
+    
+    return allTopics.filter(topic => {
+      const topicNum = topic.match(/^\d+/)?.[0];
+      return topicNum && topicNum <= learnedUpTo;
+    });
+  }, [allTopics, learnedUpTo]);
+
+  const toggleTopicException = (topic) => {
+    setTopicExceptions(prev => 
+      prev.includes(topic) 
+        ? prev.filter(t => t !== topic)
+        : [...prev, topic]
+    );
+  };
 
   async function handleSave(e) {
     e.preventDefault();
@@ -31,6 +77,8 @@ export default function ProfilePage() {
       await updateDoc(userRef, {
         displayName: displayName,
         level: level,
+        learnedUpTo: learnedUpTo,
+        topicExceptions: topicExceptions,
         updatedAt: new Date().toISOString()
       });
 
@@ -77,7 +125,7 @@ export default function ProfilePage() {
             Profile Settings
           </h1>
           <p className="text-blue-100 mt-1">
-            Manage your account and preferences
+            Manage your account and learning preferences
           </p>
         </div>
       </div>
@@ -197,6 +245,97 @@ export default function ProfilePage() {
             </p>
           </div>
 
+          {/* LEARNED UP TO SELECTOR */}
+          <div>
+            <label className="block text-sm font-bold text-slate-700 mb-2 flex items-center gap-2">
+              <BookOpen size={16} />
+              Topics Learned Up To
+            </label>
+            <p className="text-xs text-slate-500 mb-3">
+              Select the highest topic number you've learned. For example, "08" means you've learned topics 01-08.
+            </p>
+            <div className="grid grid-cols-6 md:grid-cols-8 gap-2">
+              {allTopics.map((topic) => {
+                const topicNum = topic.match(/^\d+/)?.[0];
+                return (
+                  <button
+                    key={topic}
+                    type="button"
+                    onClick={() => setLearnedUpTo(topicNum)}
+                    className={`py-2 rounded-lg border-2 font-bold transition-all text-sm ${
+                      learnedUpTo === topicNum
+                        ? 'border-chemistry-green bg-green-50 text-chemistry-green'
+                        : 'border-slate-200 text-slate-600 hover:border-slate-300'
+                    }`}
+                    title={topic}
+                  >
+                    {topicNum}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* TOPIC EXCEPTIONS */}
+          {learnedUpTo && learnedRangeTopics.length > 0 && (
+            <div className="border-t-2 border-slate-100 pt-6">
+              <label className="block text-sm font-bold text-slate-700 mb-2 flex items-center gap-2">
+                <Lock size={16} />
+                Topic Exceptions (Mark topics NOT learned)
+              </label>
+              <p className="text-xs text-slate-500 mb-3">
+                Click to exclude topics you haven't covered yet, even though they're below your "learned up to" level.
+              </p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                {learnedRangeTopics.map((topic) => {
+                  const isException = topicExceptions.includes(topic);
+                  return (
+                    <button
+                      key={topic}
+                      type="button"
+                      onClick={() => toggleTopicException(topic)}
+                      className={`flex items-center justify-between p-3 rounded-xl border-2 transition-all ${
+                        isException
+                          ? 'border-red-300 bg-red-50 text-red-700'
+                          : 'border-green-200 bg-green-50 text-green-700'
+                      }`}
+                    >
+                      <span className="text-sm font-semibold">{topic}</span>
+                      {isException ? (
+                        <Lock size={16} className="text-red-600" />
+                      ) : (
+                        <Unlock size={16} className="text-green-600" />
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Available Topics Preview */}
+          {availableTopics.length > 0 && (
+            <div className="bg-blue-50 border-2 border-blue-200 rounded-xl p-4">
+              <h3 className="font-bold text-blue-900 mb-2 flex items-center gap-2">
+                <BookOpen size={16} />
+                Your Available Topics ({availableTopics.length})
+              </h3>
+              <div className="flex flex-wrap gap-2">
+                {availableTopics.map((topic) => (
+                  <span
+                    key={topic}
+                    className="px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-xs font-bold"
+                  >
+                    {topic}
+                  </span>
+                ))}
+              </div>
+              <p className="text-xs text-blue-700 mt-2">
+                These topics will appear in your Timed and Marathon practice modes.
+              </p>
+            </div>
+          )}
+
           {/* Account Created Date */}
           <div>
             <label className="block text-sm font-bold text-slate-700 mb-2 flex items-center gap-2">
@@ -211,7 +350,7 @@ export default function ProfilePage() {
           {/* Save Button */}
           <button
             type="submit"
-            disabled={saving}
+            disabled={saving || questionsLoading}
             className="w-full py-4 bg-lab-blue text-white rounded-xl font-bold text-lg shadow-lg hover:bg-blue-800 disabled:bg-slate-300 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2 active:scale-95"
           >
             {saving ? (

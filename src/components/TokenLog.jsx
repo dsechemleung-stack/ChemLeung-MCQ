@@ -1,0 +1,251 @@
+// ============================================================================
+// TOKEN LOG - Transaction History
+// ============================================================================
+
+import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../contexts/AuthContext';
+import { getTokenHistory } from '../services/tokenService';
+import { ArrowLeft, TrendingUp, TrendingDown, Clock, Filter, Zap } from 'lucide-react';
+
+export default function TokenLog() {
+  const navigate = useNavigate();
+  const { currentUser } = useAuth();
+  const [history, setHistory] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [filter, setFilter] = useState('all'); // all | gains | spends
+
+  useEffect(() => {
+    loadHistory();
+  }, [currentUser]);
+
+  async function loadHistory() {
+    if (!currentUser) return;
+    
+    setLoading(true);
+    try {
+      const data = await getTokenHistory(currentUser.uid, 50);
+      setHistory(data);
+    } catch (error) {
+      console.error('Error loading token history:', error);
+    }
+    setLoading(false);
+  }
+
+  const formatTimeAgo = (timestamp) => {
+    if (!timestamp) return 'Unknown';
+    
+    const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+    const now = new Date();
+    const diffMs = now - date;
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    const diffDays = Math.floor(diffMs / 86400000);
+
+    if (diffMins < 1) return 'Just now';
+    if (diffMins < 60) return `${diffMins}m ago`;
+    if (diffHours < 24) return `${diffHours}h ago`;
+    if (diffDays < 7) return `${diffDays}d ago`;
+    
+    return date.toLocaleDateString('en-GB', { 
+      day: '2-digit', 
+      month: 'short', 
+      year: 'numeric' 
+    });
+  };
+
+  const filteredHistory = history.filter(entry => {
+    if (filter === 'gains') return entry.type === 'gain';
+    if (filter === 'spends') return entry.type === 'spend';
+    return true;
+  });
+
+  // Calculate totals
+  const totalGained = history
+    .filter(e => e.type === 'gain')
+    .reduce((sum, e) => sum + e.amount, 0);
+  
+  const totalSpent = history
+    .filter(e => e.type === 'spend')
+    .reduce((sum, e) => sum + Math.abs(e.amount), 0);
+
+  return (
+    <div className="max-w-4xl mx-auto space-y-6">
+      {/* Header */}
+      <div className="flex items-center gap-4">
+        <button
+          onClick={() => navigate('/dashboard')}
+          className="p-3 bg-white rounded-lg border-2 border-slate-200 hover:border-lab-blue transition-all"
+        >
+          <ArrowLeft size={20} />
+        </button>
+        
+        <div className="flex-1 bg-gradient-to-r from-amber-500 to-orange-600 rounded-2xl shadow-xl p-6 text-white">
+          <h1 className="text-3xl font-black flex items-center gap-3">
+            <Clock size={32} />
+            Token History
+          </h1>
+          <p className="text-orange-100 mt-1">
+            Track your earnings and purchases
+          </p>
+        </div>
+      </div>
+
+      {/* Stats Overview */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="bg-white rounded-xl shadow-lg border-2 border-green-200 p-6">
+          <div className="flex items-center gap-3 mb-2">
+            <div className="p-3 bg-green-100 rounded-lg">
+              <TrendingUp className="text-green-600" size={24} />
+            </div>
+            <div>
+              <div className="text-sm font-semibold text-slate-600">Total Earned</div>
+              <div className="text-3xl font-black text-green-600 flex items-center gap-2">
+                <Zap size={24} fill="currentColor" />
+                {totalGained}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-white rounded-xl shadow-lg border-2 border-red-200 p-6">
+          <div className="flex items-center gap-3 mb-2">
+            <div className="p-3 bg-red-100 rounded-lg">
+              <TrendingDown className="text-red-600" size={24} />
+            </div>
+            <div>
+              <div className="text-sm font-semibold text-slate-600">Total Spent</div>
+              <div className="text-3xl font-black text-red-600 flex items-center gap-2">
+                <Zap size={24} fill="currentColor" />
+                {totalSpent}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Filters */}
+      <div className="bg-white rounded-xl shadow-lg border-2 border-slate-200 p-4">
+        <div className="flex items-center gap-3">
+          <Filter size={18} className="text-slate-600" />
+          <div className="flex gap-2">
+            {[
+              { value: 'all', label: 'All Transactions' },
+              { value: 'gains', label: 'Gains' },
+              { value: 'spends', label: 'Spends' }
+            ].map(opt => (
+              <button
+                key={opt.value}
+                onClick={() => setFilter(opt.value)}
+                className={`px-4 py-2 rounded-lg font-bold text-sm transition-all ${
+                  filter === opt.value
+                    ? 'bg-gradient-to-r from-purple-600 to-pink-600 text-white'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Transaction List */}
+      <div className="bg-white rounded-2xl shadow-xl border-2 border-slate-200 overflow-hidden">
+        <div className="bg-slate-50 p-4 border-b-2 border-slate-200">
+          <h2 className="text-lg font-bold text-slate-800">
+            Recent Transactions ({filteredHistory.length})
+          </h2>
+        </div>
+
+        <div className="divide-y divide-slate-100">
+          {loading ? (
+            <div className="flex justify-center py-12">
+              <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-lab-blue"></div>
+            </div>
+          ) : filteredHistory.length === 0 ? (
+            <div className="text-center py-12">
+              <Clock className="w-16 h-16 text-slate-300 mx-auto mb-4" />
+              <p className="text-slate-400 text-lg">
+                {filter === 'all' 
+                  ? 'No transactions yet' 
+                  : `No ${filter === 'gains' ? 'earnings' : 'purchases'} yet`
+                }
+              </p>
+              <p className="text-slate-500 text-sm mt-2">
+                Complete quizzes to start earning tokens!
+              </p>
+            </div>
+          ) : (
+            filteredHistory.map((entry, index) => {
+              const isGain = entry.type === 'gain';
+              const amount = Math.abs(entry.amount);
+
+              return (
+                <div
+                  key={entry.id || index}
+                  className="p-4 hover:bg-slate-50 transition-all"
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-4 flex-1">
+                      {/* Icon */}
+                      <div className={`p-3 rounded-lg ${
+                        isGain ? 'bg-green-100' : 'bg-red-100'
+                      }`}>
+                        {isGain ? (
+                          <TrendingUp className="text-green-600" size={20} />
+                        ) : (
+                          <TrendingDown className="text-red-600" size={20} />
+                        )}
+                      </div>
+
+                      {/* Details */}
+                      <div className="flex-1 min-w-0">
+                        <div className="font-bold text-slate-800 mb-1">
+                          {entry.reason}
+                        </div>
+                        <div className="text-sm text-slate-500 flex items-center gap-2">
+                          <Clock size={12} />
+                          {formatTimeAgo(entry.timestamp)}
+                          {entry.metadata?.category && (
+                            <>
+                              <span>•</span>
+                              <span className="capitalize">
+                                {entry.metadata.category.replace('_', ' ')}
+                              </span>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Amount */}
+                    <div className="flex items-center gap-2">
+                      <div className={`text-2xl font-black ${
+                        isGain ? 'text-green-600' : 'text-red-600'
+                      }`}>
+                        {isGain ? '+' : '-'}{amount}
+                      </div>
+                      <Zap 
+                        size={20} 
+                        className={isGain ? 'text-green-600' : 'text-red-600'}
+                        fill="currentColor"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Balance After */}
+                  {entry.balanceAfter !== undefined && (
+                    <div className="mt-2 text-xs text-slate-400 text-right">
+                      Balance after: {entry.balanceAfter} tokens
+                    </div>
+                  )}
+                </div>
+              );
+            })
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
