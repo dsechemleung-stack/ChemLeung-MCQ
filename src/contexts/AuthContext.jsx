@@ -1,4 +1,4 @@
-import React, { createContext, useState, useEffect, useContext, useRef } from 'react';
+import React, { createContext, useState, useEffect, useContext, useRef, useCallback } from 'react';
 import { 
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
@@ -43,8 +43,14 @@ export function AuthProvider({ children }) {
       totalQuestions: 0,
       totalCorrect: 0,
       tokens: 100,        // Initial token balance
-      inventory: [],      // Owned items
-      equipped: {}        // Currently equipped items
+      inventory: ['flask_blue'],      // Start with default profile pic
+      equipped: {                     // Default equipped items
+        profilePic: 'flask_blue',
+        badge: null,
+        theme: null
+      },
+      lastWeeklyReward: null,         // For weekly reward tracking
+      lastMonthlyReward: null         // For monthly reward tracking
     });
 
     // Initialize token system (creates welcome bonus entry)
@@ -112,6 +118,19 @@ export function AuthProvider({ children }) {
     }
   }
 
+  // Manually refresh user profile
+  const refreshUserProfile = useCallback(async () => {
+    if (!currentUser) return;
+    try {
+      const userDoc = await getDoc(doc(db, 'users', currentUser.uid));
+      if (userDoc.exists()) {
+        setUserProfile(userDoc.data());
+      }
+    } catch (error) {
+      console.error('Error refreshing user profile:', error);
+    }
+  }, [currentUser]);
+
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       setCurrentUser(user);
@@ -146,7 +165,8 @@ export function AuthProvider({ children }) {
     signup,
     login,
     logout,
-    loadUserProfile  // Keep for backwards compatibility
+    loadUserProfile,      // Keep for backwards compatibility
+    refreshUserProfile    // NEW: Manual profile refresh
   };
 
   return (

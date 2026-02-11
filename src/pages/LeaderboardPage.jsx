@@ -3,9 +3,30 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useLanguage } from '../contexts/LanguageContext';
 import { quizService } from '../services/quizService';
+import { getUserProfilePicIcon } from '../services/userService';
 import { Trophy, Medal, Award, Calendar, TrendingUp, ArrowLeft, Flame, GraduationCap } from 'lucide-react';
 
-// ── Level badge ──────────────────────────────────────────────────────────────
+// User Avatar with Profile Pic
+function UserAvatar({ profilePic, displayName, size = 'md', rank }) {
+  const sizeClasses = {
+    sm: 'w-8 h-8 text-2xl',
+    md: 'w-10 h-10 text-3xl',
+    lg: 'w-12 h-12 text-4xl'
+  };
+  
+  const icon = getUserProfilePicIcon({ equipped: { profilePic: profilePic || 'flask_blue' } });
+  const isTopThree = rank <= 3;
+  
+  return (
+    <div className={`${sizeClasses[size]} rounded-full ${
+      isTopThree ? 'bg-white/20 border-2 border-white/40' : 'bg-slate-100'
+    } flex items-center justify-center flex-shrink-0`}>
+      {icon}
+    </div>
+  );
+}
+
+// Level badge
 function LevelBadge({ level, rank }) {
   if (!level) return null;
   const isTopThree = rank <= 3;
@@ -22,7 +43,7 @@ function LevelBadge({ level, rank }) {
   );
 }
 
-// ── Streak badge ─────────────────────────────────────────────────────────────
+// Streak badge
 function StreakBadge({ streak, rank }) {
   const { t } = useLanguage();
   if (!streak || streak < 1) return null;
@@ -178,6 +199,14 @@ export default function LeaderboardPage() {
                     <div className="flex-shrink-0 w-8 flex items-center justify-center">
                       {getRankIcon(rank)}
                     </div>
+
+                    {/* Profile Pic Avatar */}
+                    <UserAvatar 
+                      profilePic={entry.equipped?.profilePic} 
+                      displayName={entry.displayName}
+                      rank={rank}
+                      size="md"
+                    />
 
                     {/* User info */}
                     <div className="flex-1 min-w-0">

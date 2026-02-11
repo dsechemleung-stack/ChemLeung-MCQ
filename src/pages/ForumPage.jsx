@@ -1,13 +1,14 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useQuizData } from '../hooks/useQuizData';
-import { forumService, canEditComment, editTimeRemaining } from '../services/forumService';
+import { forumService, canEditComment } from '../services/forumService';
+import { getUserProfilePicIcon } from '../services/userService';
 import {
   MessageSquare, ArrowLeft, Search, TrendingUp, Clock, MessageCircle,
   PlusCircle, X, Send, Edit2, Trash2, ThumbsUp, Bell, BellDot,
-  Lock, Tag, Pin, ChevronLeft, AlertCircle
+  Lock, ChevronLeft
 } from 'lucide-react';
 import QuestionForum from '../components/QuestionForum';
 
@@ -15,7 +16,24 @@ const SHEET_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTK36yaUN-NMC
 
 const CATEGORIES = ['general', 'question', 'announcement'];
 
-// ── Notification Panel ────────────────────────────────────────────────────────
+// User Avatar Component
+function UserAvatar({ userProfilePic, displayName, size = 'md' }) {
+  const sizeClasses = {
+    sm: 'w-6 h-6 text-lg',
+    md: 'w-8 h-8 text-2xl',
+    lg: 'w-10 h-10 text-3xl'
+  };
+  
+  const icon = getUserProfilePicIcon({ equipped: { profilePic: userProfilePic } });
+  
+  return (
+    <div className={`${sizeClasses[size]} rounded-full bg-slate-100 flex items-center justify-center flex-shrink-0`}>
+      {icon}
+    </div>
+  );
+}
+
+// Notification Panel
 function NotificationPanel({ userId, onClose }) {
   const { t } = useLanguage();
   const [notifs, setNotifs] = useState([]);
@@ -40,7 +58,8 @@ function NotificationPanel({ userId, onClose }) {
 
   const typeLabel = (n) => {
     switch (n.type) {
-      case 'like': return t('forum.likedYourComment');
+      case 'comment_like': return t('forum.likedYourComment');
+      case 'comment_reply': return t('forum.repliedToComment');
       case 'reply': return t('forum.repliedToPost');
       case 'post_like': return t('forum.likedYourPost');
       case 'reply_like': return t('forum.likedYourReply');
@@ -110,15 +129,15 @@ function NotificationPanel({ userId, onClose }) {
   );
 }
 
-// ── General Forum Post Detail ─────────────────────────────────────────────────
-function PostDetail({ postId, currentUser, onBack }) {
+// Post Detail View
+function PostDetail({ postId, currentUser, userProfile, onBack }) {
   const { t } = useLanguage();
   const [post, setPost] = useState(null);
   const [replies, setReplies] = useState([]);
   const [loading, setLoading] = useState(true);
   const [newReply, setNewReply] = useState('');
   const [submitting, setSubmitting] = useState(false);
-  const [editingId, setEditingId] = useState(null); // 'post' | reply id
+  const [editingId, setEditingId] = useState(null);
   const [editText, setEditText] = useState('');
   const [editTitle, setEditTitle] = useState('');
   const [, forceUpdate] = useState(0);
@@ -142,7 +161,8 @@ function PostDetail({ postId, currentUser, onBack }) {
     if (!newReply.trim() || !currentUser) return;
     setSubmitting(true);
     try {
-      await forumService.addReply(postId, currentUser.uid, currentUser.displayName || 'Anonymous', newReply.trim());
+      const profilePic = userProfile?.equipped?.profilePic || 'flask_blue';
+      await forumService.addReply(postId, currentUser.uid, currentUser.displayName || 'Anonymous', newReply.trim(), profilePic);
       setNewReply(''); await loadAll();
     } catch (e) { alert(e.message); }
     setSubmitting(false);
@@ -209,7 +229,6 @@ function PostDetail({ postId, currentUser, onBack }) {
         <ChevronLeft size={18} /> {t('forum.backToForum')}
       </button>
 
-      {/* Post */}
       <div className="bg-white rounded-2xl shadow-lg border-2 border-slate-200 overflow-hidden">
         <div className="p-6">
           <div className="flex items-start justify-between gap-4 mb-4">
@@ -252,9 +271,7 @@ function PostDetail({ postId, currentUser, onBack }) {
           </div>
           <div className="flex items-center justify-between pt-4 border-t border-slate-200">
             <div className="flex items-center gap-3 text-sm text-slate-500">
-              <div className="w-7 h-7 rounded-full bg-slate-300 flex items-center justify-center text-xs font-bold text-slate-700">
-                {post.userDisplayName?.charAt(0).toUpperCase() || 'U'}
-              </div>
+              <UserAvatar userProfilePic={post.userProfilePic} displayName={post.userDisplayName} size="sm" />
               <span className="font-semibold">{post.userDisplayName}</span>
               <span>·</span>
               <span>{formatDate(post.createdAt)}</span>
@@ -268,7 +285,6 @@ function PostDetail({ postId, currentUser, onBack }) {
         </div>
       </div>
 
-      {/* Replies */}
       <div className="space-y-3">
         <h3 className="font-bold text-slate-700">{replies.length} {t('forum.replies')}</h3>
         {replies.map(reply => {
@@ -277,9 +293,7 @@ function PostDetail({ postId, currentUser, onBack }) {
             <div key={reply.id} className="bg-white rounded-xl border-2 border-slate-200 p-4">
               <div className="flex items-start justify-between gap-3 mb-2">
                 <div className="flex items-center gap-2">
-                  <div className="w-7 h-7 rounded-full bg-lab-blue flex items-center justify-center text-white text-xs font-bold">
-                    {reply.userDisplayName?.charAt(0).toUpperCase() || 'U'}
-                  </div>
+                  <UserAvatar userProfilePic={reply.userProfilePic} displayName={reply.userDisplayName} size="sm" />
                   <div>
                     <span className="font-bold text-slate-800 text-sm">{reply.userDisplayName}</span>
                     <span className="text-xs text-slate-400 ml-2">{formatDate(reply.createdAt)}</span>
@@ -322,13 +336,10 @@ function PostDetail({ postId, currentUser, onBack }) {
         })}
       </div>
 
-      {/* Reply Input */}
       {currentUser ? (
         <div className="bg-white rounded-xl border-2 border-slate-200 p-4">
           <div className="flex gap-3">
-            <div className="w-8 h-8 rounded-full bg-lab-blue flex items-center justify-center flex-shrink-0">
-              <span className="text-white font-bold text-xs">{currentUser.displayName?.charAt(0).toUpperCase() || 'U'}</span>
-            </div>
+            <UserAvatar userProfilePic={userProfile?.equipped?.profilePic} displayName={currentUser.displayName} size="md" />
             <div className="flex-1">
               <textarea value={newReply} onChange={e => setNewReply(e.target.value)} rows="3"
                 placeholder={t('forum.writeReply')}
@@ -352,8 +363,8 @@ function PostDetail({ postId, currentUser, onBack }) {
   );
 }
 
-// ── New Post Modal ────────────────────────────────────────────────────────────
-function NewPostModal({ currentUser, onClose, onCreated }) {
+// New Post Modal
+function NewPostModal({ currentUser, userProfile, onClose, onCreated }) {
   const { t } = useLanguage();
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
@@ -364,7 +375,8 @@ function NewPostModal({ currentUser, onClose, onCreated }) {
     if (!title.trim() || !content.trim()) return;
     setSubmitting(true);
     try {
-      await forumService.createPost(currentUser.uid, currentUser.displayName || 'Anonymous', { title, content, category });
+      const profilePic = userProfile?.equipped?.profilePic || 'flask_blue';
+      await forumService.createPost(currentUser.uid, currentUser.displayName || 'Anonymous', { title, content, category }, profilePic);
       onCreated();
     } catch (e) { alert(e.message); }
     setSubmitting(false);
@@ -419,33 +431,30 @@ function NewPostModal({ currentUser, onClose, onCreated }) {
   );
 }
 
-// ── Main ForumPage ────────────────────────────────────────────────────────────
+// Main ForumPage
 export default function ForumPage() {
   const navigate = useNavigate();
-  const { currentUser } = useAuth();
+  const { currentUser, userProfile } = useAuth();
   const { t } = useLanguage();
   const { questions, loading: questionsLoading } = useQuizData(SHEET_URL);
 
-  const [activeTab, setActiveTab] = useState('mcq'); // 'mcq' | 'general'
+  const [activeTab, setActiveTab] = useState('mcq');
   const [showNotifPanel, setShowNotifPanel] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
 
-  // MCQ tab state
   const [discussedQuestions, setDiscussedQuestions] = useState([]);
   const [mcqLoading, setMcqLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [sortBy, setSortBy] = useState('recent');
   const [selectedQuestion, setSelectedQuestion] = useState(null);
 
-  // General tab state
   const [posts, setPosts] = useState([]);
   const [postsLoading, setPostsLoading] = useState(false);
-  const [activePost, setActivePost] = useState(null); // postId
+  const [activePost, setActivePost] = useState(null);
   const [showNewPost, setShowNewPost] = useState(false);
   const [postSearch, setPostSearch] = useState('');
   const [postCategory, setPostCategory] = useState('all');
 
-  // Subscribe to notifications
   useEffect(() => {
     if (!currentUser) return;
     const unsub = forumService.subscribeToNotifications(currentUser.uid, (notifs) => {
@@ -487,12 +496,11 @@ export default function ForumPage() {
     })
     .sort((a, b) => sortBy === 'recent' ? new Date(b.lastActivity) - new Date(a.lastActivity) : b.commentCount - a.commentCount);
 
-  const filteredPosts = posts
-    .filter(p => {
-      if (postCategory !== 'all' && p.category !== postCategory) return false;
-      if (!postSearch) return true;
-      return p.title?.toLowerCase().includes(postSearch.toLowerCase()) || p.content?.toLowerCase().includes(postSearch.toLowerCase());
-    });
+  const filteredPosts = posts.filter(p => {
+    if (postCategory !== 'all' && p.category !== postCategory) return false;
+    if (!postSearch) return true;
+    return p.title?.toLowerCase().includes(postSearch.toLowerCase()) || p.content?.toLowerCase().includes(postSearch.toLowerCase());
+  });
 
   const formatDate = (iso) => {
     const d = new Date(iso), now = new Date(), diffMs = now - d;
@@ -511,7 +519,7 @@ export default function ForumPage() {
   if (activePost) {
     return (
       <div className="max-w-4xl mx-auto space-y-6">
-        <PostDetail postId={activePost} currentUser={currentUser}
+        <PostDetail postId={activePost} currentUser={currentUser} userProfile={userProfile}
           onBack={() => { setActivePost(null); loadPosts(); }} />
       </div>
     );
@@ -519,7 +527,6 @@ export default function ForumPage() {
 
   return (
     <div className="max-w-6xl mx-auto space-y-6">
-      {/* Header */}
       <div className="flex items-center gap-4">
         <button onClick={() => navigate('/dashboard')} className="p-3 bg-white rounded-lg border-2 border-slate-200 hover:border-lab-blue transition-all">
           <ArrowLeft size={20} />
@@ -531,7 +538,6 @@ export default function ForumPage() {
           </h1>
           <p className="text-purple-100 mt-1">{t('forum.connectDiscuss')}</p>
         </div>
-        {/* Notification Bell */}
         {currentUser && (
           <div className="relative">
             <button onClick={() => setShowNotifPanel(v => !v)}
@@ -550,7 +556,6 @@ export default function ForumPage() {
         )}
       </div>
 
-      {/* Tabs */}
       <div className="bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden">
         <div className="flex border-b">
           <button onClick={() => setActiveTab('mcq')}
@@ -565,7 +570,6 @@ export default function ForumPage() {
           </button>
         </div>
 
-        {/* ── MCQ Tab ── */}
         {activeTab === 'mcq' && (
           <div className="p-6 space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -626,7 +630,6 @@ export default function ForumPage() {
           </div>
         )}
 
-        {/* ── General Forum Tab ── */}
         {activeTab === 'general' && (
           <div className="p-6 space-y-4">
             <div className="flex flex-col md:flex-row gap-4 items-start md:items-center">
@@ -636,7 +639,6 @@ export default function ForumPage() {
                   placeholder={t('forum.searchPosts')}
                   className="w-full pl-10 pr-4 py-2.5 border-2 border-slate-200 rounded-lg focus:border-purple-400 outline-none" />
               </div>
-              {/* Category filter */}
               <div className="flex gap-2">
                 {['all', ...CATEGORIES].map(cat => (
                   <button key={cat} onClick={() => setPostCategory(cat)}
@@ -672,6 +674,7 @@ export default function ForumPage() {
                   <div key={post.id} onClick={() => setActivePost(post.id)}
                     className="p-4 rounded-xl border-2 border-slate-100 hover:border-purple-200 hover:bg-purple-50 transition-all cursor-pointer">
                     <div className="flex items-start gap-4">
+                      <UserAvatar userProfilePic={post.userProfilePic} displayName={post.userDisplayName} size="md" />
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-1.5">
                           <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${catColors[post.category] || catColors.general}`}>
@@ -697,15 +700,13 @@ export default function ForumPage() {
         )}
       </div>
 
-      {/* MCQ Forum Modal */}
       {selectedQuestion && (
         <QuestionForum question={selectedQuestion}
           onClose={() => { setSelectedQuestion(null); loadDiscussedQuestions(); }} />
       )}
 
-      {/* New Post Modal */}
       {showNewPost && currentUser && (
-        <NewPostModal currentUser={currentUser}
+        <NewPostModal currentUser={currentUser} userProfile={userProfile}
           onClose={() => setShowNewPost(false)}
           onCreated={() => { setShowNewPost(false); loadPosts(); }} />
       )}
