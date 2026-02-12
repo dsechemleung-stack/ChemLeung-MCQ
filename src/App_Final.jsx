@@ -60,11 +60,12 @@ function AppContent() {
           <Route path="/register" element={<RegisterPage />} />
 
           {/* Protected Routes */}
+          {/* ✅ FIXED: Now passes questions prop to DashboardPage */}
           <Route
             path="/dashboard"
             element={
               <PrivateRoute>
-                <DashboardPage />
+                <DashboardPage questions={questions} />
               </PrivateRoute>
             }
           />

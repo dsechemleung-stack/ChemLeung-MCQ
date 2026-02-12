@@ -1,4 +1,4 @@
-import { doc, setDoc, collection, addDoc, updateDoc, deleteDoc, query, where, getDocs, writeBatch } from 'firebase/firestore';
+import { doc, setDoc, collection, addDoc, updateDoc, deleteDoc, query, where, getDocs, getDoc, writeBatch } from 'firebase/firestore';
 import { db } from '../firebase/config';
 import { performanceService } from './performanceService';
 
@@ -12,7 +12,7 @@ export const EVENT_TYPES = {
   STUDY_SUGGESTION: 'study_suggestion',
   SPACED_REPETITION: 'spaced_repetition',
   COMPLETION_LOG: 'completion_log',
-  AI_RECOMMENDATION: 'ai_recommendation'  // NEW: AI-generated recommendation
+  AI_RECOMMENDATION: 'ai_recommendation'  // AI-generated recommendation
 };
 
 export const calendarService = {
@@ -93,6 +93,7 @@ export const calendarService = {
         phase: 'warm-up',
         linkedEventId: examId,
         linkedEventType: EVENT_TYPES.MAJOR_EXAM,
+        parentId: examId,
         title: `Warm-up: 10 MCQs${topic ? ` - ${topic}` : ''}`,
         createdAt: new Date().toISOString(),
         completed: false
@@ -115,6 +116,7 @@ export const calendarService = {
         phase: 'consolidation',
         linkedEventId: examId,
         linkedEventType: EVENT_TYPES.MAJOR_EXAM,
+        parentId: examId,
         title: `Consolidation: 20 MCQs${topic ? ` - ${topic}` : ''}`,
         createdAt: new Date().toISOString(),
         completed: false
@@ -137,6 +139,7 @@ export const calendarService = {
         phase: 'sprint',
         linkedEventId: examId,
         linkedEventType: EVENT_TYPES.MAJOR_EXAM,
+        parentId: examId,
         title: `Sprint: 40 MCQs${topic ? ` - ${topic}` : ''}`,
         createdAt: new Date().toISOString(),
         completed: false
@@ -174,6 +177,7 @@ export const calendarService = {
         phase,
         linkedEventId: quizId,
         linkedEventType: EVENT_TYPES.SMALL_QUIZ,
+        parentId: quizId,
         title: `${title}${topic ? ` - ${topic}` : ''}`,
         createdAt: new Date().toISOString(),
         completed: false,
@@ -186,45 +190,68 @@ export const calendarService = {
 
   /**
    * Schedule spaced repetition for a mistake
+   * IMPROVED: Reschedules ALL 5 intervals (1,3,7,14,30 days) and deletes old incomplete reviews
    */
   async scheduleSpacedRepetition(userId, mistakeData) {
     try {
-      const { questionId, topic, subtopic, attemptCount } = mistakeData;
+      const { questionId, topic, subtopic, attemptCount = 1 } = mistakeData;
       
+      // Spaced repetition intervals: Day 1, 3, 7, 14, 30
       const intervals = [1, 3, 7, 14, 30];
-      const intervalIndex = Math.min(attemptCount - 1, intervals.length - 1);
-      const daysUntilReview = intervals[intervalIndex];
-
-      const reviewDate = new Date();
-      reviewDate.setDate(reviewDate.getDate() + daysUntilReview);
-
+      
+      // Check existing reviews for this question
       const existingQuery = query(
         collection(db, 'calendar_events'),
         where('userId', '==', userId),
         where('type', '==', EVENT_TYPES.SPACED_REPETITION),
-        where('questionId', '==', questionId),
-        where('date', '==', reviewDate.toISOString().split('T')[0])
+        where('questionId', '==', questionId)
       );
       
       const existingDocs = await getDocs(existingQuery);
       
-      if (existingDocs.empty) {
-        await addDoc(collection(db, 'calendar_events'), {
+      // Delete old incomplete reviews
+      const batch = writeBatch(db);
+      existingDocs.forEach(doc => {
+        if (!doc.data().completed) {
+          batch.delete(doc.ref);
+        }
+      });
+      
+      // Schedule ALL intervals from current attempt onward
+      const scheduledEvents = [];
+      
+      for (let i = 0; i < intervals.length; i++) {
+        const interval = intervals[i];
+        const reviewDate = new Date();
+        reviewDate.setDate(reviewDate.getDate() + interval);
+        const dateStr = reviewDate.toISOString().split('T')[0];
+        
+        const eventRef = doc(collection(db, 'calendar_events'));
+        const eventData = {
           userId,
           type: EVENT_TYPES.SPACED_REPETITION,
-          date: reviewDate.toISOString().split('T')[0],
+          date: dateStr,
           questionId,
-          topic,
-          subtopic,
-          attemptCount,
-          interval: daysUntilReview,
-          title: `Review: ${topic}${subtopic ? ` - ${subtopic}` : ''}`,
+          topic: topic || 'General',
+          subtopic: subtopic || 'General',
+          title: `Review: ${subtopic || topic || 'Question'}`,
+          interval,
+          attemptNumber: i + 1, // 1st review, 2nd review, etc.
+          completed: false,
           createdAt: new Date().toISOString(),
-          completed: false
-        });
+          updatedAt: new Date().toISOString()
+        };
+        
+        batch.set(eventRef, eventData);
+        scheduledEvents.push({ id: eventRef.id, ...eventData });
+        
+        console.log(`📅 Scheduled review ${i + 1}/5 for ${questionId} on ${dateStr} (+${interval} days)`);
       }
-
-      return reviewDate.toISOString().split('T')[0];
+      
+      await batch.commit();
+      console.log(`✅ Scheduled ${scheduledEvents.length} reviews for question ${questionId}`);
+      
+      return scheduledEvents;
     } catch (error) {
       console.error('Error scheduling spaced repetition:', error);
       throw error;
@@ -232,7 +259,7 @@ export const calendarService = {
   },
 
   /**
-   * NEW: Create AI recommendation event from suggestion
+   * Create AI recommendation event from suggestion
    */
   async createAIRecommendationEvent(userId, recommendation) {
     try {
@@ -264,7 +291,6 @@ export const calendarService = {
 
   /**
    * Log completion of a study session
-   * NOW ALSO RECORDS PERFORMANCE
    */
   async logCompletion(userId, date, sessionData, questions = null, answers = null) {
     try {
@@ -294,7 +320,7 @@ export const calendarService = {
   },
 
   /**
-   * Mark an event as completed
+   * Mark an event as completed (legacy method)
    */
   async markEventCompleted(eventId) {
     try {
@@ -305,6 +331,27 @@ export const calendarService = {
       });
     } catch (error) {
       console.error('Error marking event completed:', error);
+      throw error;
+    }
+  },
+
+  /**
+   * Mark an event as complete with detailed completion data
+   */
+  async markEventComplete(eventId, completionData) {
+    try {
+      const eventRef = doc(db, 'calendar_events', eventId);
+      await updateDoc(eventRef, {
+        completed: true,
+        completedAt: completionData.completedAt,
+        completionData,
+        updatedAt: new Date().toISOString()
+      });
+      
+      console.log('✅ Event marked as complete:', eventId);
+      return true;
+    } catch (error) {
+      console.error('❌ Error marking event complete:', error);
       throw error;
     }
   },
@@ -336,39 +383,64 @@ export const calendarService = {
   },
 
   /**
-   * Delete an event (and optionally its linked study suggestions)
+   * Delete event and optionally cascade delete children
    */
-  async deleteEvent(eventId, deleteLinkedEvents = true) {
+  async deleteEvent(eventId, cascadeDelete = true) {
     try {
-      const eventRef = doc(db, 'calendar_events', eventId);
+      const batch = writeBatch(db);
       
-      if (deleteLinkedEvents) {
+      // Get the event to check if it's a parent
+      const eventRef = doc(db, 'calendar_events', eventId);
+      const eventSnap = await getDoc(eventRef);
+      
+      if (!eventSnap.exists()) {
+        throw new Error('Event not found');
+      }
+      
+      const eventData = eventSnap.data();
+      
+      // Delete the main event
+      batch.delete(eventRef);
+      
+      // If cascade delete, delete all child events using parentId
+      if (cascadeDelete && (eventData.type === EVENT_TYPES.MAJOR_EXAM || eventData.type === EVENT_TYPES.SMALL_QUIZ)) {
+        // Delete all study suggestions and repetitions with this parentId
+        const childQuery = query(
+          collection(db, 'calendar_events'),
+          where('parentId', '==', eventId)
+        );
+        
+        const childSnap = await getDocs(childQuery);
+        childSnap.forEach(doc => batch.delete(doc.ref));
+        
+        // Also check for linked events (backward compatibility)
         const linkedQuery = query(
           collection(db, 'calendar_events'),
           where('linkedEventId', '==', eventId)
         );
         
-        const linkedDocs = await getDocs(linkedQuery);
-        const batch = writeBatch(db);
-        
-        linkedDocs.forEach((doc) => {
-          batch.delete(doc.ref);
+        const linkedSnap = await getDocs(linkedQuery);
+        linkedSnap.forEach(doc => {
+          // Avoid double-deleting if already in child batch
+          if (!childSnap.docs.find(d => d.id === doc.id)) {
+            batch.delete(doc.ref);
+          }
         });
         
-        batch.delete(eventRef);
-        await batch.commit();
-      } else {
-        await deleteDoc(eventRef);
+        console.log(`🗑️ Cascade deleting ${childSnap.size} children and ${linkedSnap.size} linked events`);
       }
+      
+      await batch.commit();
+      console.log('✅ Event deleted successfully');
+      return true;
     } catch (error) {
-      console.error('Error deleting event:', error);
+      console.error('❌ Error deleting event:', error);
       throw error;
     }
   },
 
   /**
    * Get events grouped by date for calendar display
-   * NOW INCLUDES AI RECOMMENDATIONS
    */
   async getCalendarData(userId, year, month) {
     try {
@@ -388,7 +460,7 @@ export const calendarService = {
             suggestions: [],
             repetitions: [],
             completions: [],
-            aiRecommendations: []  // NEW
+            aiRecommendations: []
           };
         }
         

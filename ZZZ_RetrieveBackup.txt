@@ -1,0 +1,14 @@
+How to get this backup later
+1) View it on GitHub
+Open your repo and click Tags / Releases
+Find: backup-2026-02-12-0314
+2) Restore the code to that backup locally
+If you ever want to go back to that exact version:
+
+bash
+git fetch --tags
+git checkout backup-2026-02-12-0314
+If you want to continue working from that backup (recommended), create a branch from it:
+
+bash
+git checkout -b restore-from-backup backup-2026-02-12-0314
