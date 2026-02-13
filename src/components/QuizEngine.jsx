@@ -78,25 +78,6 @@ export default function QuizEngine({ questions, onComplete }) {
       const eventId = localStorage.getItem('quiz_event_id');
       
       if (currentUser?.uid) {
-        const correctCount = Object.entries(finalAnswers).filter(([qId, answer]) => {
-          const question = questions.find(q => q.ID === qId);
-          return question && answer === question.CorrectOption;
-        }).length;
-
-        // Log completion WITH performance tracking
-        await calendarService.logCompletion(
-          currentUser.uid, 
-          new Date().toISOString(), 
-          {
-            type: quizMode || 'practice',
-            topic: questions[0]?.Topic || 'Mixed',
-            questionCount: questions.length,
-            correctCount
-          },
-          questions,  // Pass questions for performance analysis
-          finalAnswers  // Pass answers for performance analysis
-        );
-
         // Mark linked event as completed if exists
         if (eventId && (quizMode === 'study-plan' || quizMode === 'spaced-repetition' || quizMode === 'ai-recommendation')) {
           await calendarService.markEventCompleted(eventId);

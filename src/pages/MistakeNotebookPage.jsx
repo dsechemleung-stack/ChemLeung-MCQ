@@ -120,6 +120,8 @@ function applyRuleOfThree(improvements) {
 async function scheduleSpacedRepetitionForMistakes(mistakesList, currentUser, improvements) {
   if (!currentUser?.uid) return;
 
+  return;
+
   try {
     // Only schedule for mistakes that are new or need review
     const mistakesToSchedule = mistakesList.filter(m => {
@@ -151,6 +153,8 @@ async function scheduleSpacedRepetitionForMistakes(mistakesList, currentUser, im
  */
 async function handleMistakeCommitted(currentUser, question, attemptCount) {
   if (!currentUser?.uid) return;
+
+  return;
   
   try {
     await calendarService.scheduleSpacedRepetition(currentUser.uid, {
@@ -1084,12 +1088,9 @@ export default function MistakeNotebookPage() {
       );
       setMistakes(arr);
       
-      // *** NEW: Schedule spaced repetition events ***
-      scheduleSpacedRepetitionForMistakes(arr, currentUser, improvementData)
-        .catch((e) => console.error('Error scheduling spaced repetition (async):', e));
-      
     } catch (err) {
-      console.error('Error loading mistakes:', err);
+      console.error(err);
+      setError(err);
     } finally {
       setLoading(false);
     }

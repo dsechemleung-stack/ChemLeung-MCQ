@@ -1,9 +1,11 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { X, Play, Eye, CheckSquare, Filter, Tag, Layers, ArrowRight, Timer, Zap } from 'lucide-react';
 import { motion } from 'framer-motion';
+import { srsService } from '../../services/srsService';
+import { quizStorage } from '../../utils/quizStorage';
 
 /**
- * SpacedRepetitionModal - COMPLETE ENHANCED VERSION
+ * SpacedRepetitionModal - COMPLETE ENHANCED VERSION with SRS Service
  * 
  * FEATURES:
  * ✅ Default: "5-Mistake Review" - AI selects 5 random questions
@@ -13,10 +15,10 @@ import { motion } from 'framer-motion';
  * ✅ Improved side-by-side topic/subtopic layout
  * ✅ Single question review option
  * ✅ Custom batch review with full filtering
+ * ✅ SRS service integration for fetching due cards
  */
 export default function SpacedRepetitionModal({ 
-  repetition, 
-  allRepetitions = [], 
+  userId,
   questions = [],
   onClose, 
   onStartReview 
@@ -28,65 +30,99 @@ export default function SpacedRepetitionModal({
   const [selectedSubtopicFilters, setSelectedSubtopicFilters] = useState([]);
   const [enableTimer, setEnableTimer] = useState(true);
   const [timedMode, setTimedMode] = useState(true);
-  
-  const currentQuestion = questions.find(q => q.ID === repetition.questionId);
-  
+  const [dueCards, setDueCards] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [selectedCardIds, setSelectedCardIds] = useState(new Set());
+
+  // Load due cards on mount
+  useEffect(() => {
+    const loadDueCards = async () => {
+      try {
+        setIsLoading(true);
+        const cards = await srsService.getDueCards(userId);
+        setDueCards(cards);
+        
+        // Auto-select all cards initially for batch mode
+        setSelectedCardIds(new Set(cards.map(card => card.id)));
+      } catch (err) {
+        console.error('Error loading due cards:', err);
+        setError('Failed to load due cards. Please try again.');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    if (userId) {
+      loadDueCards();
+    }
+  }, [userId]);
+
   // Get all non-completed reviews
   const availableReviews = useMemo(() => {
-    return allRepetitions.filter(r => !r.completed);
-  }, [allRepetitions]);
+    return dueCards.filter(card => !card.completed);
+  }, [dueCards]);
 
   // Get unique topics
   const availableTopics = useMemo(() => {
     const topics = new Set();
-    availableReviews.forEach(rep => {
-      const question = questions.find(q => q.ID === rep.questionId);
-      if (question?.Topic) topics.add(question.Topic);
+    availableReviews.forEach(card => {
+      if (card.topic) topics.add(card.topic);
     });
     return Array.from(topics).sort();
-  }, [availableReviews, questions]);
+  }, [availableReviews]);
 
   // Get subtopics based on selected topics
   const availableSubtopics = useMemo(() => {
     const subtopics = new Set();
-    availableReviews.forEach(rep => {
-      const question = questions.find(q => q.ID === rep.questionId);
-      if (question?.Subtopic) {
-        if (selectedTopicFilters.length === 0 || selectedTopicFilters.includes(question.Topic)) {
-          subtopics.add(question.Subtopic);
+    availableReviews.forEach(card => {
+      if (card.subtopic) {
+        if (selectedTopicFilters.length === 0 || selectedTopicFilters.includes(card.topic)) {
+          subtopics.add(card.subtopic);
         }
       }
     });
     return Array.from(subtopics).sort();
-  }, [availableReviews, questions, selectedTopicFilters]);
+  }, [availableReviews, selectedTopicFilters]);
 
   // Filtered reviews based on topic/subtopic selection
   const filteredReviews = useMemo(() => {
-    return availableReviews.filter(rep => {
-      const question = questions.find(q => q.ID === rep.questionId);
-      if (!question) return false;
-      if (selectedTopicFilters.length > 0 && !selectedTopicFilters.includes(question.Topic)) return false;
-      if (selectedSubtopicFilters.length > 0 && !selectedSubtopicFilters.includes(question.Subtopic)) return false;
+    return availableReviews.filter(card => {
+      if (selectedTopicFilters.length > 0 && !selectedTopicFilters.includes(card.topic)) return false;
+      if (selectedSubtopicFilters.length > 0 && !selectedSubtopicFilters.includes(card.subtopic)) return false;
       return true;
     });
-  }, [availableReviews, questions, selectedTopicFilters, selectedSubtopicFilters]);
+  }, [availableReviews, selectedTopicFilters, selectedSubtopicFilters]);
+
+  // Group due cards by date for display
+  const groupedByDate = useMemo(() => {
+    const groups = {};
+    filteredReviews.forEach(card => {
+      const dueDate = new Date(card.nextReviewDate).toLocaleDateString();
+      if (!groups[dueDate]) {
+        groups[dueDate] = [];
+      }
+      groups[dueDate].push(card);
+    });
+    return groups;
+  }, [filteredReviews]);
 
   // Auto-select all topics in batch mode
-  React.useEffect(() => {
-    if (reviewMode === 'batch' && selectedTopicFilters.length === 0) {
+  useEffect(() => {
+    if (reviewMode === 'batch' && selectedTopicFilters.length === 0 && availableTopics.length > 0) {
       setSelectedTopicFilters(availableTopics);
     }
   }, [reviewMode, availableTopics]);
 
   // Auto-select all subtopics when topics change
-  React.useEffect(() => {
-    if (reviewMode === 'batch') {
+  useEffect(() => {
+    if (reviewMode === 'batch' && availableSubtopics.length > 0) {
       setSelectedSubtopicFilters(availableSubtopics);
     }
   }, [selectedTopicFilters, availableSubtopics, reviewMode]);
 
   // Adjust question count when filtered reviews change
-  React.useEffect(() => {
+  useEffect(() => {
     if (questionCount > filteredReviews.length) {
       setQuestionCount(filteredReviews.length);
     }
@@ -104,6 +140,26 @@ export default function SpacedRepetitionModal({
     );
   };
 
+  const toggleCardSelection = (cardId) => {
+    setSelectedCardIds(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(cardId)) {
+        newSet.delete(cardId);
+      } else {
+        newSet.add(cardId);
+      }
+      return newSet;
+    });
+  };
+
+  const toggleAllCards = () => {
+    if (selectedCardIds.size === filteredReviews.length) {
+      setSelectedCardIds(new Set());
+    } else {
+      setSelectedCardIds(new Set(filteredReviews.map(card => card.id)));
+    }
+  };
+
   const selectTopicsUpTo = (targetTopic) => {
     const targetIndex = availableTopics.indexOf(targetTopic);
     if (targetIndex === -1) return;
@@ -119,27 +175,85 @@ export default function SpacedRepetitionModal({
   // Get random N questions from filtered reviews
   const getRandomQuestions = (count) => {
     const shuffled = [...filteredReviews].sort(() => Math.random() - 0.5);
-    return shuffled.slice(0, Math.min(count, shuffled.length)).map(r => r.questionId);
+    return shuffled.slice(0, Math.min(count, shuffled.length));
   };
 
-  const handleStartReview = () => {
-    let questionsToReview = [];
+  const handleStartReview = async () => {
+    let selectedCards = [];
     
     if (reviewMode === '5-mistake') {
-      questionsToReview = getRandomQuestions(questionCount);
+      selectedCards = getRandomQuestions(questionCount);
     } else if (reviewMode === 'single') {
-      questionsToReview = [repetition.questionId];
+      // For single question mode, use the first due card
+      selectedCards = filteredReviews.slice(0, 1);
     } else { // batch
-      questionsToReview = filteredReviews.slice(0, questionCount).map(r => r.questionId);
+      selectedCards = filteredReviews.filter(card => selectedCardIds.has(card.id));
     }
     
-    onStartReview(reviewMode, questionsToReview, {
-      enableTimer,
-      timedMode
-    });
+    if (selectedCards.length === 0) {
+      alert('Please select at least one question to review.');
+      return;
+    }
+
+    // Persist SRS cards metadata for ResultsPage to submit back to SRS
+    localStorage.setItem('quiz_mode', 'spaced-repetition');
+    localStorage.setItem('quiz_srs_cards', JSON.stringify(selectedCards.map(card => ({
+      id: card.id,
+      questionId: card.questionId,
+      interval: card.interval,
+      easeFactor: card.easeFactor
+    }))));
+
+    const questionIds = selectedCards.map(card => card.questionId);
+    const selectedQuestions = questions.filter(q => questionIds.includes(q.ID));
+
+    if (selectedQuestions.length === 0) {
+      alert('Questions are still loading. Please wait a moment and try again.');
+      return;
+    }
+
+    quizStorage.clearQuizData();
+    quizStorage.saveSelectedQuestions(selectedQuestions);
+    localStorage.setItem('quiz_timer_enabled', String(enableTimer));
+    localStorage.setItem('quiz_timed_mode', String(timedMode));
+    localStorage.setItem('quiz_review_mode', reviewMode);
+    
+    window.location.href = '/quiz';
   };
 
-  const effectiveQuestionCount = reviewMode === 'single' ? 1 : Math.min(questionCount, filteredReviews.length);
+  const effectiveQuestionCount = reviewMode === 'single' 
+    ? 1 
+    : reviewMode === 'batch'
+    ? selectedCardIds.size
+    : Math.min(questionCount, filteredReviews.length);
+
+  if (isLoading) {
+    return (
+      <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+        <div className="bg-white rounded-2xl p-8 shadow-2xl">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600 mx-auto"></div>
+          <p className="text-center mt-4 text-slate-600">Loading due cards...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+        <div className="bg-white rounded-2xl p-8 shadow-2xl max-w-md">
+          <div className="text-red-600 text-center mb-4">⚠️</div>
+          <p className="text-center text-red-600 font-semibold">{error}</p>
+          <button
+            onClick={onClose}
+            className="mt-6 w-full px-4 py-2 bg-slate-200 hover:bg-slate-300 rounded-lg font-semibold transition-all"
+          >
+            Close
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div 
@@ -213,7 +327,7 @@ export default function SpacedRepetitionModal({
                     Single Question
                   </span>
                 </div>
-                <div className="text-xs text-slate-500 text-left">Review this specific mistake</div>
+                <div className="text-xs text-slate-500 text-left">Review one mistake</div>
               </button>
 
               {/* Custom Batch */}
@@ -231,13 +345,13 @@ export default function SpacedRepetitionModal({
                     Custom Batch
                   </span>
                 </div>
-                <div className="text-xs text-slate-500 text-left">Filter by topics/subtopics</div>
+                <div className="text-xs text-slate-500 text-left">Select specific cards</div>
               </button>
             </div>
           </div>
 
-          {/* Question Count Selector (for 5-mistake and batch modes) */}
-          {reviewMode !== 'single' && (
+          {/* Question Count Selector (for 5-mistake mode only) */}
+          {reviewMode === '5-mistake' && (
             <div className="bg-gradient-to-r from-purple-50 to-pink-50 rounded-xl p-5 border-2 border-purple-200">
               <label className="block text-sm font-black text-purple-900 mb-3 flex items-center gap-2">
                 <CheckSquare size={16} />
@@ -360,197 +474,125 @@ export default function SpacedRepetitionModal({
             </div>
           </div>
 
-          {/* Single Question Preview */}
-          {reviewMode === 'single' && currentQuestion && (
-            <div className="p-4 rounded-xl bg-purple-50 border-2 border-purple-200">
-              <h3 className="font-bold text-purple-900 mb-2 flex items-center gap-2">
-                <Eye size={18} />
-                Question Preview
-              </h3>
-              <div className="text-sm text-purple-800 mb-2 flex items-center gap-2 flex-wrap">
-                <span className="px-2 py-0.5 bg-indigo-100 text-indigo-700 rounded text-xs font-bold">
-                  {currentQuestion.Topic}
-                </span>
-                {currentQuestion.Subtopic && (
-                  <>
-                    <span className="text-purple-400">→</span>
-                    <span className="px-2 py-0.5 bg-purple-100 text-purple-700 rounded text-xs font-bold">
-                      {currentQuestion.Subtopic}
-                    </span>
-                  </>
-                )}
-              </div>
-              <div 
-                className="text-sm text-slate-700 line-clamp-3 bg-white p-3 rounded-lg border border-purple-200"
-                dangerouslySetInnerHTML={{ __html: currentQuestion.Question }}
-              />
-              <div className="mt-3 text-xs text-purple-600 flex items-center gap-4">
-                <span>📅 Interval: Day {repetition.interval}</span>
-                <span>🔄 Attempt #{repetition.attemptNumber || 1}</span>
-              </div>
-            </div>
-          )}
-
-          {/* Batch Review Filters */}
+          {/* Batch Review - Card Selection */}
           {reviewMode === 'batch' && (
             <div className="bg-slate-50 rounded-xl p-5 border-2 border-slate-200">
               <div className="flex items-center gap-2 mb-4">
                 <Filter size={18} className="text-slate-600" />
-                <h3 className="font-black text-slate-800">Filter Questions</h3>
+                <h3 className="font-black text-slate-800">Select Cards to Review</h3>
                 <span className="ml-auto text-xs bg-white px-3 py-1 rounded-full font-bold text-slate-600 border border-slate-200">
-                  {filteredReviews.length} / {availableReviews.length} questions
+                  {selectedCardIds.size} / {filteredReviews.length} selected
                 </span>
               </div>
               
-              {/* Side-by-side Topics and Subtopics */}
-              <div className="grid grid-cols-2 gap-4">
-                {/* Topics Column */}
-                <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <label className="text-xs font-black text-slate-700 flex items-center gap-1 uppercase tracking-wide">
-                      <Tag size={12} />
-                      Topics ({selectedTopicFilters.length})
-                    </label>
-                    <div className="flex gap-1">
-                      <button
-                        onClick={() => setSelectedTopicFilters(availableTopics)}
-                        className="px-2 py-0.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded text-xs font-bold transition-all"
-                      >
-                        All
-                      </button>
-                      <button
-                        onClick={() => setSelectedTopicFilters([])}
-                        className="px-2 py-0.5 bg-slate-300 hover:bg-slate-400 text-slate-700 rounded text-xs font-bold transition-all"
-                      >
-                        Clear
-                      </button>
-                    </div>
-                  </div>
-                  <div className="border-2 border-slate-200 rounded-lg p-2 h-64 overflow-y-auto bg-white">
-                    {availableTopics.length === 0 ? (
-                      <p className="text-xs text-slate-400 text-center py-8">No topics available</p>
-                    ) : (
-                      <div className="space-y-1">
-                        {availableTopics.map((topic) => (
-                          <div key={topic} className="flex items-center gap-1">
-                            <button
-                              onClick={() => toggleTopicFilter(topic)}
-                              className={`flex-1 px-2 py-1.5 rounded transition-all flex items-center gap-2 text-xs ${
-                                selectedTopicFilters.includes(topic)
-                                  ? 'bg-indigo-100 border border-indigo-500 text-indigo-900'
-                                  : 'bg-slate-50 hover:bg-slate-100 border border-transparent'
-                              }`}
-                            >
-                              <div className={`w-3.5 h-3.5 rounded border-2 flex items-center justify-center flex-shrink-0 ${
-                                selectedTopicFilters.includes(topic)
-                                  ? 'border-indigo-600 bg-indigo-600'
-                                  : 'border-slate-300'
-                              }`}>
-                                {selectedTopicFilters.includes(topic) && (
-                                  <svg className="w-2.5 h-2.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                                  </svg>
-                                )}
-                              </div>
-                              <span className="font-semibold truncate">{topic}</span>
-                            </button>
-                            <button
-                              onClick={() => selectTopicsUpTo(topic)}
-                              className="px-1.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded transition-all flex-shrink-0"
-                              title={`Select up to ${topic}`}
-                            >
-                              <ArrowRight size={12} />
-                            </button>
-                          </div>
-                        ))}
-                      </div>
+              {/* Select All Button */}
+              <div className="mb-4 flex justify-between items-center">
+                <button
+                  onClick={toggleAllCards}
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-bold text-sm transition-all flex items-center gap-2"
+                >
+                  <CheckSquare size={16} />
+                  {selectedCardIds.size === filteredReviews.length ? 'Deselect All' : 'Select All'}
+                </button>
+                
+                {/* Topic/Subtopic Filters */}
+                <div className="flex gap-2">
+                  <select
+                    value={selectedTopicFilters}
+                    onChange={(e) => setSelectedTopicFilters(
+                      Array.from(e.target.selectedOptions, option => option.value)
                     )}
-                  </div>
-                </div>
-
-                {/* Subtopics Column */}
-                <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <label className="text-xs font-black text-slate-700 flex items-center gap-1 uppercase tracking-wide">
-                      <Layers size={12} />
-                      Subtopics ({selectedSubtopicFilters.length})
-                    </label>
-                    <div className="flex gap-1">
-                      <button
-                        onClick={() => setSelectedSubtopicFilters(availableSubtopics)}
-                        disabled={availableSubtopics.length === 0}
-                        className="px-2 py-0.5 bg-purple-600 hover:bg-purple-700 text-white rounded text-xs font-bold transition-all disabled:opacity-50"
-                      >
-                        All
-                      </button>
-                      <button
-                        onClick={() => setSelectedSubtopicFilters([])}
-                        className="px-2 py-0.5 bg-slate-300 hover:bg-slate-400 text-slate-700 rounded text-xs font-bold transition-all"
-                      >
-                        Clear
-                      </button>
-                    </div>
-                  </div>
-                  <div className="border-2 border-slate-200 rounded-lg p-2 h-64 overflow-y-auto bg-white">
-                    {availableSubtopics.length === 0 ? (
-                      <p className="text-xs text-slate-400 text-center py-8">
-                        {selectedTopicFilters.length === 0 ? 'Select topics first' : 'No subtopics available'}
-                      </p>
-                    ) : (
-                      <div className="space-y-1">
-                        {availableSubtopics.map((subtopic) => (
-                          <div key={subtopic} className="flex items-center gap-1">
-                            <button
-                              onClick={() => toggleSubtopicFilter(subtopic)}
-                              className={`flex-1 px-2 py-1.5 rounded transition-all flex items-center gap-2 text-xs ${
-                                selectedSubtopicFilters.includes(subtopic)
-                                  ? 'bg-purple-100 border border-purple-500 text-purple-900'
-                                  : 'bg-slate-50 hover:bg-slate-100 border border-transparent'
-                              }`}
-                            >
-                              <div className={`w-3.5 h-3.5 rounded border-2 flex items-center justify-center flex-shrink-0 ${
-                                selectedSubtopicFilters.includes(subtopic)
-                                  ? 'border-purple-600 bg-purple-600'
-                                  : 'border-slate-300'
-                              }`}>
-                                {selectedSubtopicFilters.includes(subtopic) && (
-                                  <svg className="w-2.5 h-2.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                                  </svg>
-                                )}
-                              </div>
-                              <span className="font-semibold truncate">{subtopic}</span>
-                            </button>
-                            <button
-                              onClick={() => selectSubtopicsUpTo(subtopic)}
-                              className="px-1.5 py-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded transition-all flex-shrink-0"
-                              title={`Select up to ${subtopic}`}
-                            >
-                              <ArrowRight size={12} />
-                            </button>
-                          </div>
-                        ))}
-                      </div>
+                    className="px-3 py-2 border-2 border-slate-300 rounded-lg text-sm"
+                    multiple
+                  >
+                    {availableTopics.map(topic => (
+                      <option key={topic} value={topic}>{topic}</option>
+                    ))}
+                  </select>
+                  
+                  <select
+                    value={selectedSubtopicFilters}
+                    onChange={(e) => setSelectedSubtopicFilters(
+                      Array.from(e.target.selectedOptions, option => option.value)
                     )}
-                  </div>
+                    className="px-3 py-2 border-2 border-slate-300 rounded-lg text-sm"
+                    multiple
+                  >
+                    {availableSubtopics.map(subtopic => (
+                      <option key={subtopic} value={subtopic}>{subtopic}</option>
+                    ))}
+                  </select>
                 </div>
               </div>
 
-              {filteredReviews.length === 0 && (
-                <div className="mt-4 text-center py-6 bg-white rounded-lg border-2 border-dashed border-slate-300">
-                  <Filter size={32} className="text-slate-300 mx-auto mb-2" />
-                  <p className="text-sm text-slate-500 font-semibold">No questions match your filters</p>
-                  <button
-                    onClick={() => {
-                      setSelectedTopicFilters(availableTopics);
-                      setSelectedSubtopicFilters(availableSubtopics);
-                    }}
-                    className="mt-3 px-4 py-2 bg-indigo-600 text-white rounded-lg font-bold hover:bg-indigo-700 text-sm transition-all"
-                  >
-                    Reset Filters
-                  </button>
-                </div>
-              )}
+              {/* Cards Grouped by Date */}
+              <div className="space-y-4 max-h-96 overflow-y-auto">
+                {Object.entries(groupedByDate).map(([date, cards]) => (
+                  <div key={date} className="border-2 border-slate-200 rounded-lg overflow-hidden">
+                    <div className="bg-slate-100 px-4 py-2 font-bold text-sm text-slate-700">
+                      Due: {date}
+                    </div>
+                    <div className="divide-y divide-slate-200">
+                      {cards.map(card => (
+                        <div
+                          key={card.id}
+                          onClick={() => toggleCardSelection(card.id)}
+                          className={`px-4 py-3 flex items-center gap-3 cursor-pointer transition-all ${
+                            selectedCardIds.has(card.id) ? 'bg-indigo-50' : 'hover:bg-slate-50'
+                          }`}
+                        >
+                          <div className={`w-5 h-5 rounded border-2 flex items-center justify-center flex-shrink-0 ${
+                            selectedCardIds.has(card.id)
+                              ? 'border-indigo-600 bg-indigo-600'
+                              : 'border-slate-300'
+                          }`}>
+                            {selectedCardIds.has(card.id) && (
+                              <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                              </svg>
+                            )}
+                          </div>
+                          
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className="px-2 py-0.5 bg-indigo-100 text-indigo-700 rounded text-xs font-bold">
+                                {card.topic || 'No Topic'}
+                              </span>
+                              {card.subtopic && (
+                                <>
+                                  <span className="text-slate-400">→</span>
+                                  <span className="px-2 py-0.5 bg-purple-100 text-purple-700 rounded text-xs font-bold">
+                                    {card.subtopic}
+                                  </span>
+                                </>
+                              )}
+                            </div>
+                            
+                            <div 
+                              className="text-sm text-slate-600 line-clamp-2"
+                              dangerouslySetInnerHTML={{ 
+                                __html: `Question ID: ${card.questionId}` 
+                              }}
+                            />
+                            
+                            <div className="flex gap-4 mt-2 text-xs text-slate-500">
+                              <span>📅 Interval: {card.interval}</span>
+                              <span>🔄 Attempt: {card.attemptNumber || 1}</span>
+                              <span>⭐ Ease: {card.easeFactor?.toFixed(2) || '2.50'}</span>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+                
+                {filteredReviews.length === 0 && (
+                  <div className="text-center py-12">
+                    <p className="text-slate-500">No due cards match your filters</p>
+                  </div>
+                )}
+              </div>
             </div>
           )}
         </div>

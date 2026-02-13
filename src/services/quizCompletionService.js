@@ -1,83 +1,84 @@
 /**
- * Quiz Completion Service - FIXED VERSION
+ * Quiz Completion Service - REFACTORED FOR JIT SRS
  * 
- * KEY FIXES:
- * 1. ✅ Each quiz attempt creates INDIVIDUALIZED spaced repetition reviews
- * 2. ✅ Completion records include full metadata (score, topics, link to results)
- * 3. ✅ Each mistake gets its own review schedule tied to that specific attempt
- * 4. ✅ Reviews are NOT merged across different quiz sessions
+ * KEY CHANGES:
+ * 1. ✅ Uses new SRS service for spaced repetition
+ * 2. ✅ Creates completion events in calendar
+ * 3. ✅ Records performance for AI recommendations
+ * 4. ✅ No more pre-scheduling multiple reviews
  */
 
 import { db } from '../firebase/config';
 import { 
   collection, 
   doc, 
-  setDoc, 
-  updateDoc,
+  setDoc,
   Timestamp 
 } from 'firebase/firestore';
 import { performanceService } from './performanceService';
-import { calendarService } from './calendarService';
-
-/**
- * Spaced repetition intervals (in days)
- * Based on SuperMemo SM-2 algorithm
- */
-const SPACED_INTERVALS = {
-  0: 1,   // First review: tomorrow
-  1: 3,   // Second review: 3 days later
-  2: 7,   // Third review: 1 week later
-  3: 14,  // Fourth review: 2 weeks later (mastered)
-};
+import { srsService } from './srsService';
 
 /**
  * 🎯 MAIN FUNCTION: Process quiz completion
  * 
  * This function:
  * 1. Records performance data for AI recommendations
- * 2. Creates INDIVIDUALIZED spaced repetition events for each wrong answer
+ * 2. Creates SRS cards for wrong answers using JIT scheduling
  * 3. Logs completion to calendar with full metadata
  */
 export async function processQuizCompletion(userId, questions, userAnswers, attemptId = null) {
   const results = {
     performanceRecorded: false,
-    repetitionsScheduled: 0,
+    srsCardsCreated: 0,
     completionLogged: false,
     errors: []
   };
 
   try {
+    // Generate session ID for this quiz
+    const sessionId = attemptId || `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    
+    console.log('📊 Processing quiz completion:', {
+      userId,
+      sessionId,
+      totalQuestions: questions.length
+    });
+
     // STEP 1: Record performance data (for AI recommendations)
     console.log('📊 Recording performance data...');
-    await performanceService.recordQuizResults(userId, questions, userAnswers);
-    results.performanceRecorded = true;
-    console.log('✅ Performance data recorded');
+    try {
+      await performanceService.recordQuizResults(userId, questions, userAnswers);
+      results.performanceRecorded = true;
+      console.log('✅ Performance data recorded');
+    } catch (error) {
+      console.error('⚠️ Performance recording error:', error);
+      results.errors.push('Performance recording failed: ' + error.message);
+    }
 
-    // STEP 2: Create individualized spaced repetition for wrong answers
-    console.log('🧠 Creating individualized spaced repetition reviews...');
+    // STEP 2: Create SRS cards for wrong answers (JIT scheduling)
+    console.log('🧠 Creating SRS cards for wrong answers...');
     
     const wrongAnswers = questions.filter(q => userAnswers[q.ID] !== q.CorrectOption);
     
     if (wrongAnswers.length > 0) {
-      // Generate unique session ID for this quiz attempt
-      const sessionId = attemptId || `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      console.log(`📝 Found ${wrongAnswers.length} wrong answers`);
       
-      console.log(`📝 Found ${wrongAnswers.length} wrong answers in session ${sessionId}`);
-      
-      // Create individual review for each wrong answer
-      for (const question of wrongAnswers) {
-        try {
-          await createIndividualizedReview(userId, question, sessionId, 0);
-          results.repetitionsScheduled++;
-        } catch (error) {
-          console.error(`⚠️ Failed to create review for question ${question.ID}:`, error);
-          results.errors.push(`Review creation failed for Q${question.ID}`);
-        }
+      try {
+        const cards = await srsService.createCardsFromMistakes(
+          userId,
+          wrongAnswers,
+          sessionId,
+          attemptId
+        );
+        
+        results.srsCardsCreated = cards.length;
+        console.log(`✅ Created ${cards.length} SRS card(s)`);
+      } catch (error) {
+        console.error('⚠️ SRS card creation error:', error);
+        results.errors.push('SRS creation failed: ' + error.message);
       }
-      
-      console.log(`✅ Scheduled ${results.repetitionsScheduled} individualized review(s) for session ${sessionId}`);
     } else {
-      console.log('🎉 Perfect score! No reviews needed.');
+      console.log('🎉 Perfect score! No SRS cards needed.');
     }
 
     results.completionLogged = true;
@@ -91,73 +92,7 @@ export async function processQuizCompletion(userId, questions, userAnswers, atte
 }
 
 /**
- * 🔧 NEW: Create individualized spaced repetition review
- * 
- * Each wrong answer gets its own review event tied to a specific session
- * This ensures reviews are NOT merged across different quiz attempts
- * 
- * @param {string} userId - User ID
- * @param {Object} question - The question that was answered incorrectly
- * @param {string} sessionId - Unique ID for this quiz session
- * @param {number} attemptCount - How many times this question has been reviewed (0 for first)
- */
-async function createIndividualizedReview(userId, question, sessionId, attemptCount = 0) {
-  // Calculate review date based on attempt count
-  const interval = SPACED_INTERVALS[attemptCount] || 14;
-  const reviewDate = new Date();
-  reviewDate.setDate(reviewDate.getDate() + interval);
-  const reviewDateStr = reviewDate.toISOString().split('T')[0];
-
-  // Create unique review event ID
-  const reviewId = `review_${sessionId}_${question.ID}_attempt${attemptCount}`;
-
-  const reviewEvent = {
-    id: reviewId,
-    userId,
-    type: 'spaced_repetition',
-    date: reviewDateStr,
-    
-    // Review metadata
-    title: `Review: ${question.Subtopic || question.Topic}`,
-    description: `Spaced repetition review #${attemptCount + 1}`,
-    
-    // Question details
-    questionId: question.ID,
-    topic: question.Topic,
-    subtopic: question.Subtopic || null,
-    
-    // Session tracking (CRITICAL for individualization)
-    sessionId,  // Links this review to a specific quiz attempt
-    attemptCount,
-    interval,
-    
-    // Status
-    completed: false,
-    
-    // Timestamps
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString()
-  };
-
-  console.log(`📅 Creating individualized review:`, {
-    questionId: question.ID,
-    sessionId,
-    attemptCount,
-    reviewDate: reviewDateStr,
-    interval: `${interval} days`
-  });
-
-  // Save to Firestore
-  await setDoc(
-    doc(db, 'calendar_events', reviewId),
-    reviewEvent
-  );
-
-  return reviewEvent;
-}
-
-/**
- * 🔧 NEW: Log detailed completion to calendar
+ * 🔧 Log detailed completion to calendar
  * 
  * This creates a completion event in the calendar with:
  * - Score and percentage
@@ -178,19 +113,23 @@ export async function logDetailedCompletion(userId, attemptId, completionData) {
     subtopics,
     timeSpent,
     mode,
-    eventId
+    eventId,
+    date,
+    completedAt,
+    title
   } = completionData;
 
-  const today = new Date().toISOString().split('T')[0];
+  // Use provided date or today
+  const completionDate = date || new Date().toISOString().split('T')[0];
   
   const completionEvent = {
     id: `completion_${attemptId}`,
     userId,
     type: 'completion',
-    date: today,
+    date: completionDate,
     
     // Display info
-    title: `Completed: ${percentage}%`,
+    title: title || `Completed: ${percentage}%`,
     description: `${correctAnswers}/${totalQuestions} correct`,
     
     // Performance data
@@ -214,65 +153,59 @@ export async function logDetailedCompletion(userId, attemptId, completionData) {
     linkedEventId: eventId || null,
     
     // Timestamps
-    completedAt: new Date().toISOString(),
+    completedAt: completedAt || new Date().toISOString(),
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString()
   };
 
   console.log('📝 Logging detailed completion to calendar:', completionEvent);
 
-  await setDoc(
-    doc(db, 'calendar_events', completionEvent.id),
-    completionEvent
-  );
+  try {
+    await setDoc(
+      doc(db, 'calendar_events', completionEvent.id),
+      completionEvent
+    );
+    console.log('✅ Completion logged to calendar');
+  } catch (error) {
+    console.error('❌ Error logging completion:', error);
+    throw error;
+  }
 
   return completionEvent;
 }
 
 /**
- * 🔧 UPDATED: Handle review completion
+ * 🔧 Handle spaced repetition review completion
  * 
- * When user completes a spaced repetition review:
- * 1. Mark the current review as complete
- * 2. If they got it WRONG, schedule NEXT review (same session)
- * 3. If they got it RIGHT, no more reviews for this question in this session
+ * When user completes an SRS review, this:
+ * 1. Submits the review to SRS service
+ * 2. SRS service automatically calculates next review date
+ * 3. Returns updated card state
+ * 
+ * @param {string} cardId - SRS card ID
+ * @param {boolean} wasCorrect - Did user answer correctly?
+ * @param {Object} attemptData - Additional attempt data
  */
-export async function handleReviewCompletion(reviewId, wasCorrect) {
+export async function handleReviewCompletion(cardId, wasCorrect, attemptData = {}) {
   try {
-    console.log(`📝 Handling review completion: ${reviewId}, correct: ${wasCorrect}`);
+    console.log(`📝 Handling review completion: ${cardId}, correct: ${wasCorrect}`);
 
-    // Mark current review as complete
-    const reviewRef = doc(db, 'calendar_events', reviewId);
-    await updateDoc(reviewRef, {
-      completed: true,
-      completedAt: new Date().toISOString(),
+    // Submit review to SRS service
+    // This will:
+    // 1. Record the attempt
+    // 2. Update card state
+    // 3. Calculate ONLY the next single review date
+    const result = await srsService.submitReview(cardId, wasCorrect, attemptData);
+
+    console.log(`✅ Review processed:`, {
+      cardId,
       wasCorrect,
-      updatedAt: new Date().toISOString()
+      nextReview: result.card.nextReviewDate,
+      newInterval: result.card.interval,
+      newStatus: result.card.status
     });
 
-    // If wrong, schedule next review in the same session
-    if (!wasCorrect) {
-      // Parse review ID to get session and question info
-      // Format: review_{sessionId}_{questionId}_attempt{N}
-      const parts = reviewId.split('_');
-      const sessionId = parts[1];
-      const questionId = parts[2];
-      const currentAttempt = parseInt(parts[3].replace('attempt', ''));
-      
-      console.log(`❌ Answer was wrong, scheduling next review in same session`);
-      
-      // Load question data (you'll need to implement this based on your data structure)
-      // For now, we'll need to pass question data differently
-      // This is a simplified version - you may need to adjust based on how you store questions
-      
-      console.log(`📅 Next review will be attempt ${currentAttempt + 1} for question ${questionId}`);
-      
-      // Note: You'll need to pass the question object here
-      // This might require fetching it from your questions collection
-      // For now, this is a placeholder
-    } else {
-      console.log(`✅ Answer was correct, no more reviews needed for this question in this session`);
-    }
+    return result;
 
   } catch (error) {
     console.error('❌ Error handling review completion:', error);
@@ -281,28 +214,77 @@ export async function handleReviewCompletion(reviewId, wasCorrect) {
 }
 
 /**
- * 🔧 NEW: Get all reviews for a specific session
- * Useful for displaying "Your reviews from Quiz #42"
+ * 🔧 Handle multiple review completions (batch)
+ * 
+ * Used when user completes a review session with multiple cards
+ * 
+ * @param {string} userId - User ID
+ * @param {Array} reviews - Array of {cardId, wasCorrect, userAnswer}
  */
-export async function getSessionReviews(userId, sessionId) {
-  const { collection, query, where, getDocs } = await import('firebase/firestore');
-  
-  const reviewsQuery = query(
-    collection(db, 'calendar_events'),
-    where('userId', '==', userId),
-    where('sessionId', '==', sessionId),
-    where('type', '==', 'spaced_repetition')
-  );
+export async function handleReviewSessionCompletion(userId, reviews) {
+  try {
+    console.log(`🎯 Handling review session: ${reviews.length} cards`);
 
-  const snapshot = await getDocs(reviewsQuery);
-  return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    const result = await srsService.submitReviewSession(userId, reviews);
+
+    console.log(`✅ Review session completed:`, {
+      sessionId: result.session.id,
+      cardsReviewed: result.session.cardsReviewed,
+      cardsCorrect: result.session.cardsCorrect,
+      cardsFailed: result.session.cardsFailed
+    });
+
+    return result;
+
+  } catch (error) {
+    console.error('❌ Error handling review session:', error);
+    throw error;
+  }
+}
+
+/**
+ * 🔧 Get SRS cards due for review
+ * 
+ * @param {string} userId - User ID
+ */
+export async function getDueReviews(userId) {
+  try {
+    const dueCards = await srsService.getDueCards(userId);
+    
+    console.log(`📊 Found ${dueCards.length} cards due for review`);
+    
+    return dueCards;
+  } catch (error) {
+    console.error('❌ Error getting due reviews:', error);
+    throw error;
+  }
+}
+
+/**
+ * 🔧 Get SRS statistics for user
+ * 
+ * @param {string} userId - User ID
+ */
+export async function getReviewStats(userId) {
+  try {
+    const stats = await srsService.getReviewStats(userId);
+    
+    console.log(`📊 Review stats for ${userId}:`, stats);
+    
+    return stats;
+  } catch (error) {
+    console.error('❌ Error getting review stats:', error);
+    throw error;
+  }
 }
 
 export const quizCompletionService = {
   processQuizCompletion,
   logDetailedCompletion,
   handleReviewCompletion,
-  getSessionReviews
+  handleReviewSessionCompletion,
+  getDueReviews,
+  getReviewStats
 };
 
 export default quizCompletionService;

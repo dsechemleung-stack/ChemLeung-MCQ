@@ -1,0 +1,45 @@
+Role: You are an expert Full-Stack Developer specializing in Spaced Repetition Systems (SRS).
+
+Task: Refactor the current review scheduling logic to follow a strict "Just-in-Time" (JIT) scheduling model inspired by the Anki/SM-2 algorithm.
+
+1. The Core Logic Rule:
+
+Never pre-schedule multiple future review dates.
+
+Only calculate and save the next_review_date once the user has submitted an attempt for the current_review_date.
+
+2. State Management & Intervals:
+Each MCQ (Multiple Choice Question) must track interval (days), ease_factor (multiplier), and repetition_count.
+
+New Card: interval = 1 day, ease_factor = 2.5.
+
+Success (Correct):
+
+If repetition_count == 0: next_interval = 1 day.
+
+If repetition_count == 1: next_interval = 6 days.
+
+If repetition_count > 1: next_interval=current_interval×ease_factor.
+
+Failure (Mistake):
+
+Immediately set interval = 1 day.
+
+Reduce ease_factor by 0.20 (minimum floor of 1.3).
+
+Set a status flag to "Learning" so the user must repeat this card within the same session before the 1-day interval is officially saved.
+
+3. Tracking Attempts:
+Update the Review schema to include an attempt_number or sequence_id.
+
+When a user fails a review, do not create a new row yet. Mark the current attempt as "Failed."
+
+Only after a successful "Pass" do you increment the repetition_count and generate the single record for the next scheduled review.
+
+4. Compatibility Fixes:
+
+Queue Logic: Update the "Get Due Cards" query to only fetch cards where next_review_date <= NOW().
+
+Data Integrity: Ensure that if a user abandons a session halfway through, the "failed" cards remain in the "due today" pile until they are successfully answered.
+
+Output: Provide the updated Database Schema, the calculateNextInterval() function, and the submitReview() controller logic.
