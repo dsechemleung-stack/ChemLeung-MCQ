@@ -7,8 +7,15 @@ import { quizStorage } from '../utils/quizStorage';
 import { quizService } from '../services/quizService';
 import { quizCompletionService } from '../services/quizCompletionService';
 import { calendarService } from '../services/calendarService';
-import { autoLogQuizCompletion } from '../utils/quizCompletionTracker';
 
+/**
+ * ResultsPage - FIXED VERSION
+ * 
+ * FIXES:
+ * 1. ✅ Saves detailed completion to calendar with full metadata
+ * 2. ✅ Creates individualized spaced repetition for each attempt
+ * 3. ✅ Links completion to attempt ID for viewing results later
+ */
 export default function ResultsPage() {
   const navigate = useNavigate();
   const { currentUser } = useAuth();
@@ -17,6 +24,7 @@ export default function ResultsPage() {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [processingComplete, setProcessingComplete] = useState(false);
+  const [attemptId, setAttemptId] = useState(null);
   const hasSavedRef = useRef(false);
 
   const questions = quizStorage.getSelectedQuestions();
@@ -39,6 +47,7 @@ export default function ResultsPage() {
       setSaving(true);
 
       try {
+        // Calculate results
         const totalQuestions = questions.length;
         const correctAnswers = questions.reduce((acc, q) => {
           return acc + (userAnswers[q.ID] === q.CorrectOption ? 1 : 0);
@@ -56,25 +65,29 @@ export default function ResultsPage() {
           correctAnswers,
           percentage,
           topics,
+          subtopics,
           timeSpent,
           questionTimes,
           answers: userAnswers,
           questions,
         };
 
-        // Save the quiz attempt
-        await quizService.saveAttempt(currentUser.uid, attemptData);
+        // STEP 1: Save the quiz attempt to Firestore
+        console.log('💾 Saving attempt to Firestore...');
+        const savedAttempt = await quizService.saveAttempt(currentUser.uid, attemptData);
+        const generatedAttemptId = savedAttempt.id || `attempt_${Date.now()}`;
+        setAttemptId(generatedAttemptId);
         setSaved(true);
-        console.log('✅ Attempt saved to Firestore');
+        console.log('✅ Attempt saved with ID:', generatedAttemptId);
 
-        // POST-QUIZ PROCESSING
+        // STEP 2: Process quiz completion (performance + individualized spaced repetition)
         console.log('🔄 Starting post-quiz processing...');
         
-        // 1. Performance tracking + Spaced repetition
         const processingResults = await quizCompletionService.processQuizCompletion(
           currentUser.uid,
           questions,
-          userAnswers
+          userAnswers,
+          generatedAttemptId  // 🎯 Pass attempt ID for individualized reviews
         );
 
         console.log('📊 Post-quiz processing complete:', processingResults);
@@ -84,45 +97,46 @@ export default function ResultsPage() {
         }
         
         if (processingResults.repetitionsScheduled > 0) {
-          console.log(`✅ Scheduled ${processingResults.repetitionsScheduled} spaced repetition review(s)`);
+          console.log(`✅ Scheduled ${processingResults.repetitionsScheduled} individualized review(s)`);
         }
         
         if (processingResults.errors.length > 0) {
           console.warn('⚠️ Some processing steps failed:', processingResults.errors);
         }
 
-        // 2. Auto-log to calendar using quizCompletionTracker
-        const quizResults = {
-          totalQuestions,
-          correctAnswers,
-          timeSpent,
-          topics,
-          subtopics
-        };
+        // STEP 3: Log DETAILED completion to calendar
+        console.log('📝 Logging detailed completion to calendar...');
+        
+        const quizMode = localStorage.getItem('quiz_mode');
+        const eventId = localStorage.getItem('quiz_event_id');
+        
+        await quizCompletionService.logDetailedCompletion(
+          currentUser.uid,
+          generatedAttemptId,
+          {
+            totalQuestions,
+            correctAnswers,
+            percentage,
+            topics,
+            subtopics,
+            timeSpent,
+            mode: quizMode,
+            eventId
+          }
+        );
+        
+        console.log('✅ Detailed completion logged to calendar');
 
-        const quizParams = {
-          mode: localStorage.getItem('quiz_mode'),
-          eventId: localStorage.getItem('quiz_event_id'),
-          timedMode: localStorage.getItem('quiz_timed_mode') === 'true',
-          timerEnabled: localStorage.getItem('quiz_timer_enabled') === 'true',
-          reviewMode: localStorage.getItem('quiz_review_mode')
-        };
-
-        await autoLogQuizCompletion(quizResults, currentUser.uid, quizParams);
-        console.log('✅ Quiz completion auto-logged to calendar');
-
-        // 3. Mark calendar event as complete if this was a study plan session or review
+        // STEP 4: Mark calendar event as complete if this was a study plan session or review
         try {
-          const quizMode = localStorage.getItem('quiz_mode');
-          const eventId = localStorage.getItem('quiz_event_id');
-          
           if (quizMode === 'study-plan' && eventId) {
             console.log('📝 Marking study session as complete:', eventId);
-            await calendarService.markEventComplete(eventId, {
+            await calendarService.markEventCompleted(eventId, {
               completedAt: new Date().toISOString(),
               questionCount: totalQuestions,
               correctCount: correctAnswers,
-              accuracy: correctAnswers / totalQuestions
+              accuracy: correctAnswers / totalQuestions,
+              attemptId: generatedAttemptId
             });
             console.log('✅ Study session marked complete');
           }
@@ -133,20 +147,32 @@ export default function ResultsPage() {
             if (eventIdsJson) {
               const eventIds = JSON.parse(eventIdsJson);
               for (const id of eventIds) {
-                await calendarService.markEventComplete(id, {
+                // Determine if this specific question was correct
+                const isCorrect = userAnswers[questions[0]?.ID] === questions[0]?.CorrectOption;
+                
+                await calendarService.markEventCompleted(id, {
                   completedAt: new Date().toISOString(),
-                  questionCount: 1,
-                  correctCount: userAnswers[questions[0]?.ID] === questions[0]?.CorrectOption ? 1 : 0
+                  wasCorrect: isCorrect,
+                  attemptId: generatedAttemptId
                 });
+                
+                // 🎯 Handle review progression
+                await quizCompletionService.handleReviewCompletion(id, isCorrect);
               }
               console.log(`✅ Marked ${eventIds.length} review(s) complete`);
             } else if (eventId) {
               // Single review
-              await calendarService.markEventComplete(eventId, {
+              const isCorrect = correctAnswers === totalQuestions;
+              
+              await calendarService.markEventCompleted(eventId, {
                 completedAt: new Date().toISOString(),
-                questionCount: 1,
-                wasCorrect: correctAnswers === totalQuestions
+                wasCorrect: isCorrect,
+                attemptId: generatedAttemptId
               });
+              
+              // 🎯 Handle review progression
+              await quizCompletionService.handleReviewCompletion(eventId, isCorrect);
+              
               console.log('✅ Review marked complete');
             }
           }
@@ -172,11 +198,21 @@ export default function ResultsPage() {
 
   const handleRestart = () => {
     quizStorage.clearQuizData();
+    
+    // Clear quiz params
+    localStorage.removeItem('quiz_mode');
+    localStorage.removeItem('quiz_event_id');
+    localStorage.removeItem('quiz_event_ids');
+    localStorage.removeItem('quiz_event_phase');
+    localStorage.removeItem('quiz_timer_enabled');
+    localStorage.removeItem('quiz_review_mode');
+    
     navigate('/');
   };
 
   return (
     <div className="relative">
+      {/* Saving indicator */}
       {saving && (
         <div className="fixed top-20 right-4 bg-blue-500 text-white px-4 py-2 rounded-lg shadow-lg z-50 flex items-center gap-2 animate-in fade-in">
           <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
@@ -186,6 +222,7 @@ export default function ResultsPage() {
         </div>
       )}
 
+      {/* Saved indicator */}
       {saved && !saving && (
         <div className="fixed top-20 right-4 bg-green-500 text-white px-4 py-2 rounded-lg shadow-lg z-50 flex items-center gap-2 animate-in fade-in">
           <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
@@ -197,13 +234,14 @@ export default function ResultsPage() {
         </div>
       )}
 
+      {/* Processing complete indicator */}
       {processingComplete && (
         <div className="fixed top-32 right-4 bg-purple-500 text-white px-4 py-2 rounded-lg shadow-lg z-50 flex items-center gap-2 animate-in fade-in">
           <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
             <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
           </svg>
           <span className="font-semibold">
-            Review sessions scheduled!
+            Individualized reviews scheduled!
           </span>
         </div>
       )}

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useLanguage } from '../contexts/LanguageContext';
 import { quizService } from '../services/quizService';
@@ -9,10 +9,19 @@ import {
   Filter, ChevronDown, Trophy, AlertCircle, RefreshCw, ChevronRight,
 } from 'lucide-react';
 
+/**
+ * HistoryPage - UPDATED VERSION
+ * 
+ * NEW FEATURE:
+ * - Supports ?attempt=<attemptId> parameter to auto-open specific attempt
+ * - Used when clicking "View Results" from calendar completion events
+ */
 export default function HistoryPage() {
   const { currentUser } = useAuth();
   const { t } = useLanguage();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  
   const [attempts, setAttempts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -21,7 +30,26 @@ export default function HistoryPage() {
   const [showFilters, setShowFilters] = useState(false);
   const [selectedAttempt, setSelectedAttempt] = useState(null);
 
-  useEffect(() => { loadHistory(); }, [currentUser]);
+  useEffect(() => { 
+    loadHistory(); 
+  }, [currentUser]);
+
+  // 🎯 NEW: Auto-open attempt if specified in URL
+  useEffect(() => {
+    const attemptId = searchParams.get('attempt');
+    if (attemptId && attempts.length > 0) {
+      const attempt = attempts.find(a => a.id === attemptId);
+      if (attempt) {
+        console.log('🎯 Auto-opening attempt from calendar:', attemptId);
+        setSelectedAttempt(attempt);
+        
+        // Clear the URL parameter after opening (optional)
+        // navigate('/history', { replace: true });
+      } else {
+        console.warn('⚠️ Attempt not found:', attemptId);
+      }
+    }
+  }, [searchParams, attempts]);
 
   async function loadHistory() {
     if (!currentUser) { setLoading(false); return; }
@@ -99,7 +127,9 @@ export default function HistoryPage() {
             {t('history.title')}
           </h1>
           <p className="text-purple-100 mt-1">
-            {t('history.clickToSeeAnalysis')}
+            {searchParams.get('attempt') 
+              ? 'Viewing attempt from calendar'
+              : t('history.clickToSeeAnalysis')}
           </p>
         </div>
       </div>
@@ -226,7 +256,11 @@ export default function HistoryPage() {
                 <button
                   key={attempt.id}
                   onClick={() => setSelectedAttempt(attempt)}
-                  className="w-full flex items-center justify-between p-4 rounded-xl border-2 border-slate-100 hover:border-purple-300 hover:bg-purple-50 transition-all hover:shadow-md text-left group"
+                  className={`w-full flex items-center justify-between p-4 rounded-xl border-2 transition-all hover:shadow-md text-left group ${
+                    searchParams.get('attempt') === attempt.id
+                      ? 'border-purple-500 bg-purple-50'
+                      : 'border-slate-100 hover:border-purple-300 hover:bg-purple-50'
+                  }`}
                 >
                   <div className="flex items-center gap-4 flex-1">
                     <div className="w-10 h-10 rounded-lg bg-slate-100 flex items-center justify-center font-black text-slate-600">
@@ -282,7 +316,13 @@ export default function HistoryPage() {
       {selectedAttempt && (
         <AttemptDetailModal
           attempt={selectedAttempt}
-          onClose={() => setSelectedAttempt(null)}
+          onClose={() => {
+            setSelectedAttempt(null);
+            // Clear URL parameter when closing modal
+            if (searchParams.get('attempt')) {
+              navigate('/history', { replace: true });
+            }
+          }}
         />
       )}
     </div>

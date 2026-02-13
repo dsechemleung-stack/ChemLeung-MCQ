@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ChevronLeft, ChevronRight, Plus, Flag, Calendar as CalendarIcon, BookOpen, Brain, CheckCircle, Trash2, X, Sparkles, ThumbsUp, ThumbsDown, Play, Info } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Plus, Flag, Calendar as CalendarIcon, BookOpen, Brain, CheckCircle, Trash2, X, Sparkles, ThumbsUp, ThumbsDown, Play, Info, Target, Clock, Eye } from 'lucide-react';
 import { calendarService, EVENT_TYPES } from '../../services/calendarService';
 import { performanceService } from '../../services/performanceService';
 import { quizStorage } from '../../utils/quizStorage';
@@ -62,6 +62,14 @@ export default function SmartMonthlyCalendar({ userId, questions = [], onAddEven
       console.error('Error loading AI recommendations:', error);
     }
   }
+
+  // Helper function to format time
+  const formatTime = (seconds) => {
+    if (!seconds) return '0s';
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
+  };
 
   // Generate calendar grid
   const calendarGrid = useMemo(() => {
@@ -1021,22 +1029,108 @@ export default function SmartMonthlyCalendar({ userId, questions = [], onAddEven
                       </div>
                     ))}
                     
-                    {/* Completions */}
+                    {/* UPDATED: Completion Events with Link to Results */}
                     {calendarData[selectedDate].completions?.length > 0 && (
-                      <div className="p-4 rounded-lg bg-green-50 border-2 border-green-200">
-                        <div className="flex items-center gap-2 mb-2">
-                          <CheckCircle className="text-green-600" size={20} />
-                          <span className="font-bold text-green-900">
-                            {calendarData[selectedDate].completions.length} Session(s) Completed
-                          </span>
-                        </div>
-                        <div className="space-y-1">
-                          {calendarData[selectedDate].completions.map((comp, idx) => (
-                            <div key={idx} className="text-sm text-green-700">
-                              {comp.questionCount} questions • {Math.round(comp.accuracy * 100)}% accuracy
+                      <div className="space-y-2">
+                        <h4 className="font-bold text-slate-700 text-sm mb-2">
+                          📊 Completed Sessions ({calendarData[selectedDate].completions.length})
+                        </h4>
+                        
+                        {calendarData[selectedDate].completions.map((comp, idx) => (
+                          <div
+                            key={idx}
+                            className="p-4 rounded-lg bg-green-50 border-2 border-green-200 hover:border-green-400 transition-all"
+                          >
+                            {/* Header with Score */}
+                            <div className="flex items-center justify-between mb-2">
+                              <div className="flex items-center gap-2">
+                                <CheckCircle className="text-green-600" size={20} />
+                                <span className="font-bold text-green-900">
+                                  {comp.title || `Session ${idx + 1}`}
+                                </span>
+                              </div>
+                              <div className={`px-3 py-1 rounded-lg font-black text-lg ${
+                                comp.percentage >= 70 ? 'bg-green-600 text-white' :
+                                comp.percentage >= 50 ? 'bg-yellow-500 text-white' :
+                                'bg-red-500 text-white'
+                              }`}>
+                                {comp.percentage}%
+                              </div>
                             </div>
-                          ))}
-                        </div>
+
+                            {/* Details */}
+                            <div className="space-y-1 text-sm text-green-700 mb-3">
+                              <div className="flex items-center gap-2">
+                                <Target size={14} />
+                                <span>
+                                  <strong>{comp.correctAnswers}/{comp.totalQuestions}</strong> correct
+                                  {comp.timeSpent && (
+                                    <> • <Clock size={12} className="inline" /> {formatTime(comp.timeSpent)}</>
+                                  )}
+                                </span>
+                              </div>
+                              
+                              {/* Topics covered */}
+                              {comp.topics && comp.topics.length > 0 && (
+                                <div className="flex items-start gap-2">
+                                  <BookOpen size={14} className="mt-0.5" />
+                                  <div className="flex-1">
+                                    <div className="flex flex-wrap gap-1">
+                                      {comp.topics.map((topic, i) => (
+                                        <span key={i} className="text-xs bg-green-100 text-green-800 px-2 py-0.5 rounded-full font-semibold">
+                                          {topic}
+                                        </span>
+                                      ))}
+                                    </div>
+                                    {comp.subtopics && comp.subtopics.length > 0 && (
+                                      <div className="flex flex-wrap gap-1 mt-1">
+                                        {comp.subtopics.map((subtopic, i) => (
+                                          <span key={i} className="text-xs bg-green-50 text-green-700 px-2 py-0.5 rounded-full">
+                                            {subtopic}
+                                          </span>
+                                        ))}
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              )}
+                              
+                              {/* Completion time */}
+                              <div className="flex items-center gap-2 text-xs text-green-600">
+                                <Calendar size={12} />
+                                <span>
+                                  Completed: {new Date(comp.completedAt).toLocaleString('en-GB', {
+                                    day: '2-digit',
+                                    month: 'short',
+                                    hour: '2-digit',
+                                    minute: '2-digit'
+                                  })}
+                                </span>
+                              </div>
+                            </div>
+
+                            {/* Action Button - View Results */}
+                            {comp.attemptId && (
+                              <button
+                                onClick={() => {
+                                  // Navigate to results page for this specific attempt
+                                  navigate(`/history?attempt=${comp.attemptId}`);
+                                }}
+                                className="w-full px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg font-bold transition-all flex items-center justify-center gap-2"
+                              >
+                                <Eye size={16} />
+                                View Full Results
+                              </button>
+                            )}
+                            
+                            {/* If no attemptId, just show info */}
+                            {!comp.attemptId && (
+                              <div className="text-xs text-green-600 text-center italic">
+                                Results not available for this session
+                              </div>
+                            )}
+                          </div>
+                        ))}
                       </div>
                     )}
                   </>
