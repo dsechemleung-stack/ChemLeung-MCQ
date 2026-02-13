@@ -3,65 +3,15 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useLanguage } from '../contexts/LanguageContext';
 import { quizService } from '../services/quizService';
-import { quizStorage } from '../utils/quizStorage';
 import { loadMistakesFromStorage } from '../utils/masteryHelper';
 import AttemptDetailModal from '../components/AttemptDetailModal';
 import MasteryProgressHub from '../components/dashboard/MasteryProgressHub';
 import CurrentGoalWidget from '../components/dashboard/CurrentGoalWidget';
 import PriorityReviewSection from '../components/dashboard/PriorityReviewSection';
-import DailyMissionCard from '../components/dashboard/DailyMissionCard';
 import SmartMonthlyCalendar from '../components/dashboard/SmartMonthlyCalendar';
 import EventCreationModal from '../components/dashboard/EventCreationModal';
 import CompactAttemptsList from '../components/dashboard/CompactAttemptsList';
-import { LogOut, AlertCircle, RefreshCw, Sparkles } from 'lucide-react';
-import { performanceService } from '../services/performanceService';
-import { quizCompletionService } from '../services/quizCompletionService';
-
-const MASTERY_THRESHOLD = 3;
-
-// Helper function for AI Daily Mission
-function calculateMasteryPriority(mistake, recentTopics = []) {
-  const now = Date.now();
-  const lastAttemptTime = new Date(mistake.lastAttempted).getTime();
-  const daysSinceLastAttempt = Math.max(0, (now - lastAttemptTime) / (1000 * 60 * 60 * 24));
-  const U = Math.pow(2, daysSinceLastAttempt / 7);
-  const D = Math.min(1.0, (mistake.attemptCount || 1) / 3);
-  let R = 0.5;
-  if (recentTopics.length > 0 && recentTopics.includes(mistake.Topic)) {
-    R = 1.5;
-  }
-  return (U * 0.4) + (D * 0.4) + (R * 0.2);
-}
-
-function selectAIDailyMission(mistakes, recentTopics = []) {
-  const prioritized = mistakes
-    .map(m => ({
-      ...m,
-      masteryPriority: calculateMasteryPriority(m, recentTopics)
-    }))
-    .sort((a, b) => b.masteryPriority - a.masteryPriority);
-  
-  const byTopic = {};
-  prioritized.forEach(m => {
-    if (!byTopic[m.Topic]) byTopic[m.Topic] = [];
-    byTopic[m.Topic].push(m);
-  });
-  
-  const selected = [];
-  const topicList = Object.keys(byTopic);
-  const indices = Object.fromEntries(topicList.map(t => [t, 0]));
-  
-  while (selected.length < 10 && topicList.some(t => indices[t] < byTopic[t].length)) {
-    for (const topic of topicList) {
-      if (selected.length >= 10) break;
-      if (indices[topic] < byTopic[topic].length) {
-        selected.push(byTopic[topic][indices[topic]++]);
-      }
-    }
-  }
-  
-  return selected.slice(0, 10);
-}
+import { LogOut, AlertCircle, RefreshCw, X, Info } from 'lucide-react';
 
 // ✅ FIXED: Now receives questions as prop
 export default function DashboardPage({ questions = [] }) {
@@ -75,10 +25,9 @@ export default function DashboardPage({ questions = [] }) {
   const [error, setError] = useState(null);
   const [selectedAttempt, setSelectedAttempt] = useState(null);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
-  const [loadingAIMission, setLoadingAIMission] = useState(false);
+  const [showQuickStatsInfo, setShowQuickStatsInfo] = useState(false);
   const [showEventModal, setShowEventModal] = useState(false);
   const [calendarKey, setCalendarKey] = useState(0);
-  const [debugLoading, setDebugLoading] = useState(false);
 
   // ✅ REMOVED: No longer loading questions here - using prop instead
   // const { questions: allQuestions, loading: questionsLoading } = useQuizData(...)
@@ -109,116 +58,6 @@ export default function DashboardPage({ questions = [] }) {
     } catch (err) {
       console.error('Error loading mistakes:', err);
       setMistakes([]);
-    }
-  }
-
-  async function handleAIDailyMission() {
-    setLoadingAIMission(true);
-    try {
-      const userAttempts = await quizService.getUserAttempts(currentUser.uid, 100);
-      const incorrectMap = new Map();
-      const improvementData = JSON.parse(
-        localStorage.getItem('mistake_improvements') || '{}'
-      );
-      const recentTopics = JSON.parse(localStorage.getItem('recent_quiz_topics') || '[]');
-      
-      userAttempts.forEach((attempt) => {
-        if (!attempt.answers || !attempt.questions) return;
-        attempt.questions.forEach((question) => {
-          const userAnswer = attempt.answers[question.ID];
-          const isCorrect = userAnswer && userAnswer === question.CorrectOption;
-          
-          if (isCorrect && improvementData[question.ID]) {
-            improvementData[question.ID].correctCount =
-              (improvementData[question.ID].correctCount || 0) + 1;
-            improvementData[question.ID].lastCorrect = attempt.timestamp;
-          }
-          
-          if (userAnswer && userAnswer !== question.CorrectOption) {
-            const improveCount = improvementData[question.ID]?.correctCount || 0;
-            if (improveCount >= MASTERY_THRESHOLD) return;
-            
-            if (!incorrectMap.has(question.ID)) {
-              incorrectMap.set(question.ID, {
-                ...question,
-                attemptCount: 1,
-                lastAttempted: attempt.timestamp,
-                userAnswer,
-                improvementCount: improveCount,
-              });
-            } else {
-              const existing = incorrectMap.get(question.ID);
-              existing.attemptCount += 1;
-              existing.improvementCount = improveCount;
-              if (new Date(attempt.timestamp) > new Date(existing.lastAttempted)) {
-                existing.lastAttempted = attempt.timestamp;
-                existing.userAnswer = userAnswer;
-              }
-            }
-          }
-        });
-      });
-
-      const mistakesList = Array.from(incorrectMap.values());
-      
-      if (mistakesList.length < 10) {
-        alert(`You need at least 10 mistakes to start AI Daily Mission. You currently have ${mistakesList.length}.`);
-        setLoadingAIMission(false);
-        return;
-      }
-
-      const selected = selectAIDailyMission(mistakesList, recentTopics);
-      
-      quizStorage.clearQuizData();
-      quizStorage.saveSelectedQuestions(selected);
-      localStorage.setItem('quiz_mode', 'ai-daily');
-      localStorage.setItem('quiz_timer_enabled', 'true');
-      localStorage.setItem('quiz_is_timed_mode', 'true');
-      navigate('/quiz');
-    } catch (error) {
-      console.error('Error loading AI Daily Mission:', error);
-      alert('Failed to load AI Daily Mission. Please try again.');
-      setLoadingAIMission(false);
-    }
-  }
-
-  /**
-   * Debug function to check performance data and generate AI recommendations
-   */
-  async function handleDebugPerformance() {
-    if (!currentUser?.uid) {
-      alert('❌ No user logged in');
-      return;
-    }
-
-    setDebugLoading(true);
-    try {
-      console.log('🔍 Checking performance data...');
-      
-      const performance = await performanceService.getAllPerformance(currentUser.uid);
-      console.log('Performance records:', performance);
-      
-      if (performance.length === 0) {
-        alert('❌ No performance data found. Take a quiz with 5+ questions in the same subtopic first!');
-        return;
-      }
-      
-      const recommendations = await performanceService.getRecommendations(currentUser.uid);
-      console.log('AI Recommendations:', recommendations);
-      
-      if (recommendations.length === 0) {
-        await quizCompletionService.refreshAIRecommendations(currentUser.uid);
-        alert('✅ Generated new recommendations! Refresh the page.');
-      } else {
-        alert(`Found ${recommendations.length} recommendations! Check console for details.`);
-      }
-      
-      setCalendarKey(prev => prev + 1);
-    } catch (error) {
-      console.error('Error:', error);
-      alert('Error: ' + error.message);
-    } finally {
-      setDebugLoading(false);
     }
   }
 
@@ -254,39 +93,26 @@ export default function DashboardPage({ questions = [] }) {
     <div className="space-y-6 p-4 bg-gradient-to-br from-slate-50 via-white to-slate-50 min-h-screen">
       <div className="max-w-7xl mx-auto space-y-6">
         {/* HEADER */}
-        <div className="bg-white rounded-2xl shadow-lg p-8 border-2 border-indigo-100">
-          <div className="flex justify-between items-start">
-            <div>
-              <h1 className="text-4xl font-black text-slate-800 mb-2 leading-tight">
-                Welcome back, {currentUser?.displayName}! 🎓
-              </h1>
-              <p className="text-lg text-slate-600 font-medium">{currentUser?.email}</p>
-            </div>
-            <div className="flex gap-3">
-              {/* 🔍 Debug AI Recommendations Button */}
-              <button
-                onClick={handleDebugPerformance}
-                disabled={debugLoading}
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg font-bold hover:bg-blue-700 flex items-center gap-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {debugLoading ? (
-                  <>
-                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white" />
-                    Checking...
-                  </>
-                ) : (
-                  <>
-                    🔍 Debug AI Recommendations
-                  </>
-                )}
-              </button>
-              <button
-                onClick={() => setShowLogoutConfirm(true)}
-                className="flex items-center gap-2 px-4 py-2 bg-rose-500 hover:bg-rose-600 text-white rounded-xl font-bold transition-all shadow-md"
-              >
-                <LogOut size={18} />
-                Logout
-              </button>
+        <div className="relative overflow-hidden rounded-2xl shadow-lg border-2 border-indigo-100">
+          <div className="absolute inset-0 bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600" />
+          <div className="absolute inset-0 opacity-30" style={{ backgroundImage: 'radial-gradient(circle at 20% 20%, rgba(255,255,255,0.35), transparent 45%), radial-gradient(circle at 80% 30%, rgba(255,255,255,0.25), transparent 50%), radial-gradient(circle at 50% 80%, rgba(255,255,255,0.20), transparent 55%)' }} />
+          <div className="relative p-8">
+            <div className="flex justify-between items-start gap-6">
+              <div className="min-w-0">
+                <h1 className="text-4xl sm:text-5xl font-black text-white mb-2 leading-tight tracking-tight">
+                  Welcome back, {currentUser?.displayName}!
+                </h1>
+                <p className="text-base sm:text-lg text-white/90 font-semibold truncate">{currentUser?.email}</p>
+              </div>
+              <div className="flex gap-3 flex-shrink-0">
+                <button
+                  onClick={() => setShowLogoutConfirm(true)}
+                  className="flex items-center gap-2 px-4 py-2 bg-white/15 hover:bg-white/20 text-white rounded-xl font-bold transition-all shadow-md border-2 border-white/30 backdrop-blur hover:scale-[1.02] active:scale-[0.99]"
+                >
+                  <LogOut size={18} />
+                  Logout
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -312,46 +138,6 @@ export default function DashboardPage({ questions = [] }) {
             </div>
           </div>
         )}
-
-        {/* AI DAILY MISSION HERO SECTION */}
-        <div className="bg-gradient-to-r from-purple-600 via-indigo-600 to-blue-600 rounded-2xl shadow-xl p-8 text-white">
-          <div className="flex items-center justify-between">
-            <div className="flex-1">
-              <div className="flex items-center gap-3 mb-3">
-                <Sparkles size={32} strokeWidth={3} />
-                <h2 className="text-3xl font-black">AI Daily Mission</h2>
-                <div className="bg-white/20 rounded-full px-3 py-1 text-sm font-bold">
-                  10 Questions
-                </div>
-              </div>
-              <p className="text-purple-100 mb-4 max-w-2xl">
-                AI-optimized mistake review using spaced repetition and topic interleaving for maximum retention
-              </p>
-              <button
-                onClick={handleAIDailyMission}
-                disabled={loadingAIMission}
-                className="px-8 py-4 bg-white text-purple-700 rounded-xl font-black text-lg shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center gap-2 hover:scale-105 active:scale-95"
-              >
-                {loadingAIMission ? (
-                  <>
-                    <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-purple-700" />
-                    Loading...
-                  </>
-                ) : (
-                  <>
-                    <Sparkles size={20} />
-                    Start Mission
-                  </>
-                )}
-              </button>
-            </div>
-            <div className="hidden lg:block">
-              <div className="w-48 h-48 bg-white/10 rounded-2xl flex items-center justify-center backdrop-blur">
-                <Sparkles size={96} className="text-white/40" />
-              </div>
-            </div>
-          </div>
-        </div>
 
         {/* ✅ FIXED: Using questions prop instead of allQuestions */}
         <SmartMonthlyCalendar
@@ -382,7 +168,17 @@ export default function DashboardPage({ questions = [] }) {
 
             {/* Quick Stats Cards */}
             <div className="bg-white rounded-2xl shadow-lg border-2 border-slate-100 p-6">
-              <h3 className="text-lg font-black text-slate-800 mb-4">Quick Stats</h3>
+              <div className="flex items-center justify-between gap-3 mb-4">
+                <h3 className="text-lg font-black text-slate-800">Quick Stats</h3>
+                <button
+                  type="button"
+                  onClick={() => setShowQuickStatsInfo(true)}
+                  className="w-9 h-9 rounded-xl border-2 border-slate-200 hover:border-indigo-300 hover:bg-indigo-50 transition-all flex items-center justify-center font-black text-indigo-700 hover:scale-110 active:scale-105"
+                  title="How this works"
+                >
+                  ?
+                </button>
+              </div>
               <div className="space-y-3">
                 <div className="flex justify-between items-center p-3 bg-indigo-50 rounded-lg">
                   <span className="text-sm font-bold text-slate-700">Study Streak</span>
@@ -398,6 +194,41 @@ export default function DashboardPage({ questions = [] }) {
                 </div>
               </div>
             </div>
+
+            {showQuickStatsInfo && (
+              <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setShowQuickStatsInfo(false)}>
+                <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xl border-2 border-slate-200" onClick={(e) => e.stopPropagation()}>
+                  <div className="p-5 border-b-2 border-slate-200 flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Info size={20} className="text-indigo-700" />
+                      <h3 className="text-lg font-black text-slate-800">Quick Stats mechanism</h3>
+                    </div>
+                    <button type="button" onClick={() => setShowQuickStatsInfo(false)} className="p-2 hover:bg-slate-100 rounded-xl transition-all" aria-label="Close">
+                      <X size={20} />
+                    </button>
+                  </div>
+                  <div className="p-5 space-y-3 text-sm text-slate-700">
+                    <p className="font-medium">
+                      This section summarizes your learning momentum and progress at a glance.
+                    </p>
+                    <div className="space-y-2">
+                      <div>
+                        <div className="font-black text-slate-800">Study Streak</div>
+                        <div className="text-slate-600 font-medium">Counts consecutive days you studied (based on recent activity).</div>
+                      </div>
+                      <div>
+                        <div className="font-black text-slate-800">Topics Mastered</div>
+                        <div className="text-slate-600 font-medium">How many topics have reached the mastered threshold in the mastery system.</div>
+                      </div>
+                      <div>
+                        <div className="font-black text-slate-800">In Progress</div>
+                        <div className="text-slate-600 font-medium">Topics you’ve started but haven’t mastered yet (keep practicing to push them over the line).</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </div>
 

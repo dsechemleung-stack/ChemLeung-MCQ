@@ -1,6 +1,6 @@
 import React from 'react';
 import ForumPage from './pages/ForumPage';
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { AuthProvider } from './contexts/AuthContext';
 import { LanguageProvider } from './contexts/LanguageContext';
 import PrivateRoute from './components/PrivateRoute';
@@ -26,7 +26,9 @@ import TokenLog from './components/TokenLog';
 const SHEET_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTK36yaUN-NMCkQNT-DAHgc6FMZPjUc0Yv3nYEK4TA9W2qE9V1TqVD10Tq98-wXQoAvKOZlwGWRSDkU/pub?gid=1182550140&single=true&output=csv';
 
 function AppContent() {
+  const location = useLocation();
   const { questions, loading, error } = useQuizData(SHEET_URL);
+  const isNotebookRoute = location.pathname === '/notebook';
 
   if (loading) {
     return (
@@ -53,7 +55,7 @@ function AppContent() {
   return (
     <>
       <Header />
-      <div className="container mx-auto px-4 py-6">
+      <div className={isNotebookRoute ? '' : 'container mx-auto px-4 py-6'}>
         <Routes>
           {/* Public Routes */}
           <Route path="/login" element={<LoginPage />} />
@@ -140,7 +142,7 @@ function AppContent() {
             path="/notebook"
             element={
               <PrivateRoute>
-                <MistakeNotebookPage />
+                <MistakeNotebookPage questions={questions} />
               </PrivateRoute>
             }
           />

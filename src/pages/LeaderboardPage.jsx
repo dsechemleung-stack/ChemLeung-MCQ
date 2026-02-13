@@ -1,9 +1,13 @@
-import React, { useState, useEffect } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useLanguage } from '../contexts/LanguageContext';
 import { quizService } from '../services/quizService';
 import { Trophy, Medal, Award, Calendar, TrendingUp, ArrowLeft, Flame, GraduationCap } from 'lucide-react';
+import Avatar from '../components/Avatar';
+import TokenRulesModal from '../components/TokenRulesModal';
+import { canClaimReward, recordRewardClaim } from '../services/tokenService';
+import { rewardLeaderboardPlacement } from '../services/rewardLogic';
 
 // ── Level badge ──────────────────────────────────────────────────────────────
 function LevelBadge({ level, rank }) {
@@ -41,6 +45,9 @@ export default function LeaderboardPage() {
   const [activeTab, setActiveTab] = useState('weekly');
   const [leaderboard, setLeaderboard] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [claiming, setClaiming] = useState(false);
+  const [claimMessage, setClaimMessage] = useState(null);
+  const [showRules, setShowRules] = useState(false);
   const { currentUser } = useAuth();
   const { t } = useLanguage();
   const navigate = useNavigate();
@@ -103,6 +110,65 @@ export default function LeaderboardPage() {
     alltime: t('leaderboard.overallAccuracyAllTime'),
   };
 
+  const myRank = useMemo(() => {
+    if (!currentUser?.uid || !Array.isArray(leaderboard)) return null;
+    const idx = leaderboard.findIndex(e => e.userId === currentUser.uid);
+    return idx >= 0 ? idx + 1 : null;
+  }, [leaderboard, currentUser]);
+
+  const claimKey = useMemo(() => {
+    const now = new Date();
+    if (activeTab === 'weekly') {
+      const date = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
+      const dayNum = date.getUTCDay() || 7;
+      date.setUTCDate(date.getUTCDate() + 4 - dayNum);
+      const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
+      const weekNo = Math.ceil((((date - yearStart) / 86400000) + 1) / 7);
+      const yyyy = date.getUTCFullYear();
+      return `leaderboard_weekly_${yyyy}-W${String(weekNo).padStart(2, '0')}`;
+    }
+    if (activeTab === 'monthly') {
+      const yyyy = now.getFullYear();
+      const mm = String(now.getMonth() + 1).padStart(2, '0');
+      return `leaderboard_monthly_${yyyy}-${mm}`;
+    }
+    return null;
+  }, [activeTab]);
+
+  async function handleClaim() {
+    if (!currentUser?.uid) return;
+    if (!['weekly', 'monthly'].includes(activeTab)) return;
+    if (!myRank) {
+      setClaimMessage('No rank yet');
+      return;
+    }
+    if (!claimKey) return;
+
+    setClaiming(true);
+    setClaimMessage(null);
+    try {
+      const check = await canClaimReward(currentUser.uid, claimKey);
+      if (!check?.canClaim) {
+        setClaimMessage(check?.message || 'Already claimed');
+        setClaiming(false);
+        return;
+      }
+
+      const result = await rewardLeaderboardPlacement(currentUser.uid, myRank, activeTab);
+      if (result?.success && result.tokensAwarded > 0) {
+        await recordRewardClaim(currentUser.uid, claimKey, 99999);
+        setClaimMessage(result.message || `+${result.tokensAwarded} tokens!`);
+      } else {
+        await recordRewardClaim(currentUser.uid, claimKey, 99999);
+        setClaimMessage('No reward');
+      }
+    } catch (e) {
+      console.error(e);
+      setClaimMessage('Claim failed');
+    }
+    setClaiming(false);
+  }
+
   return (
     <div className="max-w-4xl mx-auto space-y-6">
       {/* Header */}
@@ -124,6 +190,8 @@ export default function LeaderboardPage() {
         </div>
       </div>
 
+      <TokenRulesModal open={showRules} onClose={() => setShowRules(false)} />
+
       {/* Tabs */}
       <div className="bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden">
         <div className="flex border-b">
@@ -141,6 +209,35 @@ export default function LeaderboardPage() {
               {tab.label}
             </button>
           ))}
+        </div>
+
+        <div className="px-6 pt-5">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              {['weekly', 'monthly'].includes(activeTab) && currentUser?.uid && (
+                <button
+                  type="button"
+                  onClick={handleClaim}
+                  disabled={claiming || loading}
+                  className="px-4 py-2 bg-chemistry-green text-white rounded-xl font-bold text-sm hover:opacity-95 disabled:bg-slate-300 disabled:cursor-not-allowed transition-all"
+                >
+                  {claiming ? 'Claiming...' : 'Claim reward'}
+                </button>
+              )}
+              {claimMessage && (
+                <div className="text-sm font-semibold text-slate-600">{claimMessage}</div>
+              )}
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setShowRules(true)}
+              className="w-10 h-10 bg-white rounded-xl border-2 border-slate-200 hover:border-lab-blue transition-all flex items-center justify-center font-black text-lab-blue hover:scale-110 active:scale-105"
+              title={t('store.howToEarnTokens')}
+            >
+              !
+            </button>
+          </div>
         </div>
 
         {/* List */}
@@ -182,6 +279,15 @@ export default function LeaderboardPage() {
                     {/* User info */}
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center flex-wrap gap-2 mb-1">
+                        <Avatar
+                          userId={entry.userId}
+                          displayName={entry.displayName}
+                          profilePicId={entry.equippedProfilePic}
+                          themeId={entry.equippedTheme}
+                          fetchUser={false}
+                          size="xs"
+                          className={isTopThree ? 'ring-1 ring-white/40' : 'ring-1 ring-slate-200'}
+                        />
                         <span className={`font-bold text-base truncate ${isTopThree ? 'text-white' : 'text-slate-800'}`}>
                           {entry.displayName}
                         </span>

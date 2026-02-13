@@ -3,6 +3,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useLanguage } from '../contexts/LanguageContext';
 import { forumService, canEditComment, editTimeRemaining, EDIT_WINDOW_MS } from '../services/forumService';
 import { MessageSquare, Send, Edit2, Trash2, ThumbsUp, X, AlertCircle, Clock, Lock } from 'lucide-react';
+import Avatar from './Avatar';
 
 function EditTimer({ createdAt, onExpire }) {
   const [remaining, setRemaining] = useState(() => editTimeRemaining(createdAt));
@@ -151,9 +152,7 @@ export default function QuestionForum({ question, onClose }) {
         {currentUser ? (
           <div className="p-6 border-b-2 border-slate-200 bg-white">
             <div className="flex gap-3">
-              <div className="w-10 h-10 rounded-full bg-lab-blue flex items-center justify-center flex-shrink-0">
-                <span className="text-white font-bold text-sm">{currentUser.displayName?.charAt(0).toUpperCase() || 'U'}</span>
-              </div>
+              <Avatar userId={currentUser.uid} displayName={currentUser.displayName} size="md" />
               <div className="flex-1">
                 <textarea value={newComment} onChange={e => setNewComment(e.target.value)}
                   placeholder={isEnglish ? 'Share your thoughts...' : '分享您的想法...'}
@@ -199,9 +198,7 @@ export default function QuestionForum({ question, onClose }) {
                   <div key={comment.id} className="bg-slate-50 rounded-xl p-4 border-2 border-slate-200">
                     <div className="flex justify-between items-start mb-2">
                       <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-full bg-lab-blue flex items-center justify-center">
-                          <span className="text-white font-bold text-xs">{comment.userDisplayName?.charAt(0).toUpperCase() || 'U'}</span>
-                        </div>
+                        <Avatar userId={comment.userId} displayName={comment.userDisplayName} size="sm" />
                         <div>
                           <div className="font-bold text-slate-800">{comment.userDisplayName || 'Anonymous'}</div>
                           <div className="text-xs text-slate-500 flex items-center gap-2">

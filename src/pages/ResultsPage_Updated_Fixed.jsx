@@ -7,6 +7,7 @@ import { quizStorage } from '../utils/quizStorage';
 import { quizService } from '../services/quizService';
 import { quizCompletionService } from '../services/quizCompletionService';
 import { calendarService } from '../services/calendarService';
+import { rewardMCQCompletion, rewardQuizQuestionTokens } from '../services/rewardLogic';
 
 /**
  * ResultsPage - OPTIMIZED VERSION with SRS Review Support
@@ -118,6 +119,24 @@ export default function ResultsPage() {
 
         // STEP 2: Run ALL operations in parallel (MUCH FASTER!)
         const parallelOperations = [];
+
+        // Operation 0: Token rewards (per-question + quiz bonus)
+        parallelOperations.push(
+          (async () => {
+            try {
+              await rewardQuizQuestionTokens(currentUser.uid, questions, userAnswers, quizMode);
+              await rewardMCQCompletion(currentUser.uid, {
+                percentage,
+                totalQuestions,
+                correctAnswers,
+                topics,
+                attemptId
+              });
+            } catch (err) {
+              console.error('⚠️ Token reward error:', err);
+            }
+          })()
+        );
 
         // Operation 1: Process quiz completion (performance + spaced repetition)
         parallelOperations.push(

@@ -1,5 +1,5 @@
-import React, { useMemo } from 'react';
-import { BarChart3, Zap, Target } from 'lucide-react';
+import React, { useMemo, useState } from 'react';
+import { BarChart3, Zap, Target, X, Info } from 'lucide-react';
 import { getMasteryState, calculateMasteryStats } from '../../utils/masteryHelper';
 
 /**
@@ -8,6 +8,7 @@ import { getMasteryState, calculateMasteryStats } from '../../utils/masteryHelpe
  */
 export default function MasteryProgressHub({ userProfile, mistakes }) {
   const stats = useMemo(() => calculateMasteryStats(userProfile, mistakes || []), [userProfile, mistakes]);
+  const [showInfo, setShowInfo] = useState(false);
 
   const total = stats.unseenCount + stats.inProgressCount + stats.masteredCount;
   const unseenPct = total > 0 ? Math.round((stats.unseenCount / total) * 100) : 0;
@@ -17,15 +18,61 @@ export default function MasteryProgressHub({ userProfile, mistakes }) {
   return (
     <div className="bg-white rounded-2xl shadow-lg border-2 border-indigo-100 p-8">
       {/* Header */}
-      <div className="flex items-center gap-3 mb-6">
+      <div className="flex items-center justify-between gap-3 mb-6">
         <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-indigo-100 to-indigo-200 flex items-center justify-center">
           <BarChart3 className="text-indigo-600" size={28} />
         </div>
-        <div>
+        <div className="flex-1 min-w-0">
           <h2 className="text-2xl font-black text-slate-800">Mastery Health Bar</h2>
           <p className="text-sm text-slate-500 mt-1">Based on the Rule of 3 system</p>
         </div>
+        <button
+          type="button"
+          onClick={() => setShowInfo(true)}
+          className="w-9 h-9 rounded-xl border-2 border-slate-200 hover:border-indigo-300 hover:bg-indigo-50 transition-all flex items-center justify-center font-black text-indigo-700 hover:scale-110 active:scale-105"
+          title="How this works"
+        >
+          ?
+        </button>
       </div>
+
+      {showInfo && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setShowInfo(false)}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xl border-2 border-slate-200" onClick={(e) => e.stopPropagation()}>
+            <div className="p-5 border-b-2 border-slate-200 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Info size={20} className="text-indigo-700" />
+                <h3 className="text-lg font-black text-slate-800">Mastery Health Bar mechanism</h3>
+              </div>
+              <button type="button" onClick={() => setShowInfo(false)} className="p-2 hover:bg-slate-100 rounded-xl transition-all" aria-label="Close">
+                <X size={20} />
+              </button>
+            </div>
+            <div className="p-5 space-y-3 text-sm text-slate-700">
+              <p className="font-medium">
+                Topics move through 3 states based on correct attempts (the <strong>Rule of 3</strong>).
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                <div className="p-3 rounded-xl border-2 border-slate-200 bg-red-50">
+                  <div className="font-black text-red-700">New</div>
+                  <div className="text-slate-600 font-medium">Not attempted yet.</div>
+                </div>
+                <div className="p-3 rounded-xl border-2 border-slate-200 bg-amber-50">
+                  <div className="font-black text-amber-700">Improving</div>
+                  <div className="text-slate-600 font-medium">1–2 correct answers.</div>
+                </div>
+                <div className="p-3 rounded-xl border-2 border-slate-200 bg-green-50">
+                  <div className="font-black text-green-700">Mastered</div>
+                  <div className="text-slate-600 font-medium">3+ correct answers.</div>
+                </div>
+              </div>
+              <p className="text-slate-600 font-medium">
+                The bar shows your syllabus coverage split into these 3 categories.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Main Progress Bar with Stacked Sections */}
       <div className="mb-8">

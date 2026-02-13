@@ -9,6 +9,7 @@ import { useLanguage } from '../contexts/LanguageContext';
 import { purchaseItem, equipItem } from '../services/tokenService';
 import { STORE_ITEMS, RARITY_COLORS, RARITY_BORDER, RARITY_LABELS } from '../utils/storeItems';
 import { ArrowLeft, ShoppingBag, Sparkles, Check, Lock, Zap } from 'lucide-react';
+import TokenRulesModal from './TokenRulesModal';
 
 export default function ChemStore() {
   const navigate = useNavigate();
@@ -17,6 +18,7 @@ export default function ChemStore() {
   const [selectedCategory, setSelectedCategory] = useState('profilePics');
   const [purchasing, setPurchasing] = useState(null);
   const [notification, setNotification] = useState(null);
+  const [showRules, setShowRules] = useState(false);
 
   const tokens = userProfile?.tokens || 0;
   const inventory = userProfile?.inventory || [];
@@ -100,37 +102,39 @@ export default function ChemStore() {
           <ArrowLeft size={20} />
         </button>
         
-        <div className="flex-1 bg-gradient-to-r from-purple-600 via-pink-600 to-orange-500 rounded-2xl shadow-2xl p-6 text-white relative overflow-hidden">
-          {/* Animated background effect */}
-          <div className="absolute inset-0 opacity-20">
-            <div className="absolute top-0 left-0 w-40 h-40 bg-white rounded-full blur-3xl animate-pulse"></div>
-            <div className="absolute bottom-0 right-0 w-60 h-60 bg-white rounded-full blur-3xl animate-pulse" style={{ animationDelay: '1s' }}></div>
-          </div>
-          
-          <div className="relative z-10">
-            <div className="flex items-center justify-between">
-              <div>
-                <h1 className="text-3xl font-black flex items-center gap-3 mb-2">
-                  <ShoppingBag size={32} strokeWidth={3} />
-                  {t('store.title')}
-                </h1>
-                <p className="text-white/90 font-semibold">
-                  {t('store.subtitle')}
-                </p>
-              </div>
-              
-              {/* Token Balance */}
-              <div className="bg-white/20 backdrop-blur-sm rounded-2xl px-6 py-4 border-2 border-white/40">
-                <div className="text-sm font-bold text-white/80 mb-1">{t('store.yourBalance')}</div>
-                <div className="text-4xl font-black flex items-center gap-2">
-                  <Zap size={32} className="text-yellow-300" fill="currentColor" />
-                  {tokens}
-                </div>
+        <div className="flex-1 bg-gradient-to-r from-purple-600 to-pink-600 rounded-2xl shadow-xl p-6 text-white">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <h1 className="text-3xl font-black flex items-center gap-3 mb-2">
+                <ShoppingBag size={32} strokeWidth={3} />
+                {t('store.title')}
+              </h1>
+              <p className="text-white/90 font-semibold">
+                {t('store.subtitle')}
+              </p>
+            </div>
+
+            <div className="bg-white/20 backdrop-blur-sm rounded-2xl px-6 py-4 border-2 border-white/40">
+              <div className="text-sm font-bold text-white/80 mb-1">{t('store.yourBalance')}</div>
+              <div className="text-4xl font-black flex items-center gap-2">
+                <Zap size={32} className="text-yellow-300" fill="currentColor" />
+                {tokens}
               </div>
             </div>
           </div>
         </div>
+
+        <button
+          type="button"
+          onClick={() => setShowRules(true)}
+          className="w-12 h-12 bg-white rounded-xl border-2 border-slate-200 hover:border-lab-blue transition-all flex items-center justify-center font-black text-lab-blue hover:scale-110 active:scale-105"
+          title={t('store.howToEarnTokens')}
+        >
+          ?
+        </button>
       </div>
+
+      <TokenRulesModal open={showRules} onClose={() => setShowRules(false)} />
 
       {/* Category Tabs */}
       <div className="bg-white rounded-2xl shadow-xl border-2 border-slate-200 overflow-hidden">
@@ -262,39 +266,6 @@ export default function ChemStore() {
         </div>
       </div>
 
-      {/* Info Box */}
-      <div className="bg-gradient-to-r from-blue-50 to-purple-50 border-2 border-blue-200 rounded-xl p-6">
-        <h3 className="font-bold text-blue-900 mb-3 flex items-center gap-2">
-          <Sparkles size={18} />
-          {t('store.howToEarnTokens')}
-        </h3>
-        <ul className="space-y-2 text-sm text-blue-800">
-          <li className="flex items-start gap-2">
-            <span className="text-lg">⭐</span>
-            <span><strong>{t('store.perfectScore')}</strong> {t('store.perfectScoreTokens')}</span>
-          </li>
-          <li className="flex items-start gap-2">
-            <span className="text-lg">🎯</span>
-            <span><strong>{t('store.excellentScore')}</strong> {t('store.excellentScoreTokens')}</span>
-          </li>
-          <li className="flex items-start gap-2">
-            <span className="text-lg">👍</span>
-            <span><strong>{t('store.goodScore')}</strong> {t('store.goodScoreTokens')}</span>
-          </li>
-          <li className="flex items-start gap-2">
-            <span className="text-lg">📚</span>
-            <span><strong>{t('store.clearMistake')}</strong> {t('store.clearMistakeTokens')}</span>
-          </li>
-          <li className="flex items-start gap-2">
-            <span className="text-lg">🏆</span>
-            <span><strong>{t('store.leaderboardGold')}</strong> {t('store.leaderboardTokens')}</span>
-          </li>
-          <li className="flex items-start gap-2">
-            <span className="text-lg">🔥</span>
-            <span><strong>{t('store.studyStreaks')}</strong> {t('store.studyStreaksTokens')}</span>
-          </li>
-        </ul>
-      </div>
     </div>
   );
 }

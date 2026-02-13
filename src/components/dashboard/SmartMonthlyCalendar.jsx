@@ -26,6 +26,7 @@ export default function SmartMonthlyCalendar({ userId, questions = [], onAddEven
   const [aiRecommendations, setAIRecommendations] = useState([]);
   const [suggestionPreview, setSuggestionPreview] = useState(null);
   const [reviewModal, setReviewModal] = useState(null);
+  const [showInfo, setShowInfo] = useState(false);
   
   const year = currentDate.getFullYear();
   const month = currentDate.getMonth();
@@ -512,33 +513,127 @@ export default function SmartMonthlyCalendar({ userId, questions = [], onAddEven
   return (
     <div className="bg-white rounded-2xl shadow-lg border-2 border-slate-100 p-6">
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-3">
-          <div className="w-12 h-12 rounded-xl bg-blue-100 flex items-center justify-center">
-            <CalendarIcon className="text-blue-600" size={28} />
+      <div className="flex items-start justify-between mb-6 gap-4">
+        <div className="flex items-center gap-4 min-w-0">
+          <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-blue-100 to-indigo-100 flex items-center justify-center border-2 border-blue-200 flex-shrink-0">
+            <CalendarIcon className="text-blue-700" size={30} />
           </div>
-          <div>
-            <h3 className="text-xl font-black text-slate-800">Smart Study Calendar</h3>
-            <p className="text-xs text-slate-500 mt-1">{monthName}</p>
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h3 className="text-2xl sm:text-3xl font-black text-slate-800 tracking-tight special-calendar-title special-calendar-title-animate">
+                Smart Study Calendar
+              </h3>
+              <button
+                type="button"
+                onClick={() => setShowInfo(true)}
+                className="w-9 h-9 rounded-xl border-2 border-slate-200 hover:border-indigo-400 hover:bg-indigo-50 transition-all flex items-center justify-center font-black text-indigo-700 hover:scale-110 active:scale-105"
+                title="How this works"
+              >
+                ?
+              </button>
+            </div>
+            <p className="text-sm text-slate-500 mt-1 font-semibold truncate">{monthName}</p>
           </div>
         </div>
-        
-        <div className="flex items-center gap-2">
-          <button onClick={prevMonth} className="p-2 hover:bg-slate-100 rounded-lg transition-all">
-            <ChevronLeft size={20} className="text-slate-600" />
-          </button>
-          <button onClick={nextMonth} className="p-2 hover:bg-slate-100 rounded-lg transition-all">
-            <ChevronRight size={20} className="text-slate-600" />
-          </button>
+
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <div className="flex items-center gap-1 p-1 bg-slate-50 rounded-xl border-2 border-slate-200">
+            <button onClick={prevMonth} className="p-2 hover:bg-white rounded-lg transition-all">
+              <ChevronLeft size={20} className="text-slate-700" />
+            </button>
+            <button onClick={nextMonth} className="p-2 hover:bg-white rounded-lg transition-all">
+              <ChevronRight size={20} className="text-slate-700" />
+            </button>
+          </div>
+
           <button
             onClick={onAddEvent}
-            className="ml-2 px-4 py-2 bg-indigo-600 text-white rounded-lg font-bold hover:bg-indigo-700 transition-all flex items-center gap-2"
+            className="px-4 py-2.5 bg-indigo-600 text-white rounded-xl font-black hover:bg-indigo-700 transition-all flex items-center gap-2 shadow-sm"
           >
             <Plus size={16} />
             Add Event
           </button>
         </div>
       </div>
+
+      <AnimatePresence>
+        {showInfo && (
+          <motion.div
+            className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
+            onClick={() => setShowInfo(false)}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+          >
+            <motion.div
+              className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl border-2 border-slate-200"
+              onClick={(e) => e.stopPropagation()}
+              initial={{ y: 18, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              exit={{ y: 18, opacity: 0 }}
+            >
+              <div className="p-5 border-b-2 border-slate-200 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Info size={20} className="text-indigo-700" />
+                  <h3 className="text-lg sm:text-xl font-black text-slate-800">Smart Study Calendar features</h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowInfo(false)}
+                  className="p-2 hover:bg-slate-100 rounded-xl transition-all"
+                  aria-label="Close"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+
+              <div className="p-5">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="p-4 rounded-xl border-2 border-slate-200 bg-slate-50">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Brain size={18} className="text-blue-700" />
+                      <h4 className="font-black text-slate-800">SRS review system</h4>
+                    </div>
+                    <p className="text-sm text-slate-600 font-medium">
+                      Uses spaced repetition events to bring back questions/topics when you’re most likely to forget.
+                    </p>
+                  </div>
+
+                  <div className="p-4 rounded-xl border-2 border-slate-200 bg-slate-50">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Sparkles size={18} className="text-purple-700" />
+                      <h4 className="font-black text-slate-800">AI suggestions (by topic)</h4>
+                    </div>
+                    <p className="text-sm text-slate-600 font-medium">
+                      Suggestions are generated from your accuracy trends per topic/subtopic. Accepting one adds a study session into your calendar.
+                    </p>
+                  </div>
+
+                  <div className="p-4 rounded-xl border-2 border-slate-200 bg-slate-50">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Target size={18} className="text-emerald-700" />
+                      <h4 className="font-black text-slate-800">Exam / quiz / revision plan</h4>
+                    </div>
+                    <p className="text-sm text-slate-600 font-medium">
+                      Add exams and quizzes, then follow a plan that spreads practice and revision across days for steady progress.
+                    </p>
+                  </div>
+
+                  <div className="p-4 rounded-xl border-2 border-slate-200 bg-slate-50">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Eye size={18} className="text-amber-700" />
+                      <h4 className="font-black text-slate-800">Mechanics</h4>
+                    </div>
+                    <p className="text-sm text-slate-600 font-medium">
+                      Tap a day to see planned items and completions. Completed sessions turn green and stay visible for tracking.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* AI Recommendations (existing code - unchanged) */}
       {aiRecommendations.length > 0 && (

@@ -22,6 +22,7 @@ import {
 
 // ADD THIS IMPORT:
 import { calendarService } from '../services/calendarService';
+import { srsService } from '../services/srsService';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // CONSTANTS
@@ -36,9 +37,9 @@ const ERROR_TYPES = [
   { value: 'diagram', label: 'Diagram Misread', color: 'pink' },
 ];
 const MASTERY_LEVELS = {
-  new:        { label: 'New',         min: 0, max: 0, color: 'red' },
-  progressing:{ label: 'Developing', min: 1, max: 1, color: 'amber' },
-  near:       { label: 'Near-Mastery', min: 2, max: 2, color: 'green' },
+  new:        { label: 'New', color: 'red' },
+  progressing:{ label: 'Developing', color: 'amber' },
+  near:       { label: 'Near-Mastery', color: 'green' },
 };
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -57,16 +58,39 @@ function calculateMasteryPriority(mistake, recentTopics = []) {
   return (U * 0.4) + (D * 0.4) + (R * 0.2);
 }
 
-function getMasteryState(improvementCount = 0) {
-  if (improvementCount === 0) return { state: 0, label: 'Unprocessed', color: 'red' };
-  if (improvementCount === 1) return { state: 1, label: 'Acquiring', color: 'amber' };
-  if (improvementCount === 2) return { state: 2, label: 'Consolidating', color: 'yellow' };
+function getSrsBucket(card) {
+  if (!card) return 'new';
+  if (card.isActive === false) return 'archived';
+  if (card.status === 'new') return 'new';
+  if (card.status === 'learning') return 'progressing';
+  if (card.status === 'review') return 'near';
+  if (card.status === 'graduated') return 'archived';
+  return 'progressing';
+}
+
+function getSrsBucketState(bucket) {
+  if (bucket === 'new') return { state: 0, label: 'New', color: 'red' };
+  if (bucket === 'progressing') return { state: 1, label: 'Developing', color: 'amber' };
+  if (bucket === 'near') return { state: 2, label: 'Near-Mastery', color: 'yellow' };
   return { state: 3, label: 'Mastered', color: 'green' };
 }
 
+function getSrsContributionWeight(card) {
+  if (!card) return 1;
+  if (card.isActive === false) return 0.1;
+  if (card.status === 'graduated') return 0.1;
+  const rep = Number(card.repetitionCount || 0);
+  const byRep = 1 / (1 + rep);
+  if (card.status === 'review') return Math.max(0.2, byRep);
+  if (card.status === 'learning') return Math.max(0.35, byRep);
+  return 1;
+}
+
 function calcPriority(mistake) {
-  const days = (Date.now() - new Date(mistake.lastAttempted).getTime()) / (1000 * 60 * 60 * 24);
-  return days * 1.2 - (mistake.improvementCount ?? 0) * 2;
+  const last = mistake.lastAttempted || mistake.lastReviewedAt || mistake.createdAt;
+  const days = last ? (Date.now() - new Date(last).getTime()) / (1000 * 60 * 60 * 24) : 0;
+  const rep = mistake.repetitionCount ?? mistake.improvementCount ?? 0;
+  return days * 1.2 - rep * 2;
 }
 
 function masteryStyle(improvementCount) {
@@ -93,21 +117,7 @@ function masteryStyle(improvementCount) {
 }
 
 function applyRuleOfThree(improvements) {
-  const archived = JSON.parse(localStorage.getItem('mistake_archive') || '{}');
-  const activeImprovements = { ...improvements };
-  
-  Object.entries(improvements).forEach(([questionId, data]) => {
-    if ((data.correctCount || 0) >= 3) {
-      archived[questionId] = { ...data, archivedAt: new Date().toISOString() };
-      delete activeImprovements[questionId];
-    }
-  });
-  
-  if (Object.keys(archived).length > Object.keys(JSON.parse(localStorage.getItem('mistake_archive') || '{}')).length) {
-    localStorage.setItem('mistake_archive', JSON.stringify(archived));
-  }
-  
-  return activeImprovements;
+  return improvements;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -117,17 +127,14 @@ function applyRuleOfThree(improvements) {
 /**
  * Schedule spaced repetition events for new mistakes
  */
-async function scheduleSpacedRepetitionForMistakes(mistakesList, currentUser, improvements) {
+async function scheduleSpacedRepetitionForMistakes(mistakesList, currentUser) {
   if (!currentUser?.uid) return;
 
   return;
 
   try {
     // Only schedule for mistakes that are new or need review
-    const mistakesToSchedule = mistakesList.filter(m => {
-      const improvementCount = improvements[m.ID]?.correctCount || 0;
-      return improvementCount < MASTERY_THRESHOLD && m.attemptCount >= 1;
-    });
+    const mistakesToSchedule = mistakesList.filter(m => m.attemptCount >= 1);
 
     // Schedule in batches to avoid overwhelming Firebase
     for (const mistake of mistakesToSchedule) {
@@ -511,7 +518,7 @@ function InteractiveTopicHeatmap({ mistakes, selectedTopics, onTopicToggle }) {
 /**
  * CalendarHeatmap: 30-day activity visualization
  */
-function CalendarHeatmap({ improvements }) {
+function CalendarHeatmap({ attempts }) {
   const { t } = useLanguage();
   
   const activityMap = useMemo(() => {
@@ -525,15 +532,14 @@ function CalendarHeatmap({ improvements }) {
       map[dateStr] = 0;
     }
     
-    Object.values(improvements).forEach(data => {
-      if (data.lastCorrect) {
-        const dateStr = new Date(data.lastCorrect).toISOString().split('T')[0];
-        if (map[dateStr] !== undefined) map[dateStr]++;
-      }
+    (attempts || []).forEach(a => {
+      if (!a?.wasCorrect) return;
+      const dateStr = a.attemptedAt ? new Date(a.attemptedAt).toISOString().split('T')[0] : null;
+      if (dateStr && map[dateStr] !== undefined) map[dateStr]++;
     });
     
     return map;
-  }, [improvements]);
+  }, [attempts]);
   
   const days = Object.entries(activityMap).reverse();
   const maxActivity = Math.max(...Object.values(activityMap), 1);
@@ -591,29 +597,43 @@ function CalendarHeatmap({ improvements }) {
 /**
  * ImprovementTrendChart: 14-day mastery progression
  */
-function ImprovementTrendChart({ improvements }) {
+function ImprovementTrendChart({ cards, attempts }) {
   const { t } = useLanguage();
   
   const trendData = useMemo(() => {
-    const stateHistory = {};
-    
-    Object.values(improvements).forEach(data => {
-      const state = getMasteryState(data.correctCount || 0);
-      const dateStr = data.lastCorrect
-        ? new Date(data.lastCorrect).toISOString().split('T')[0]
-        : new Date().toISOString().split('T')[0];
-      
-      if (!stateHistory[dateStr]) {
-        stateHistory[dateStr] = { Unprocessed: 0, Acquiring: 0, Consolidating: 0, Mastered: 0 };
-      }
-      stateHistory[dateStr][state.label]++;
+    const now = new Date();
+    const days = [];
+    for (let i = 13; i >= 0; i--) {
+      const d = new Date(now);
+      d.setDate(d.getDate() - i);
+      days.push(d.toISOString().split('T')[0]);
+    }
+
+    const snapshotByDay = Object.fromEntries(days.map(d => [d, { New: 0, Developing: 0, 'Near-Mastery': 0, Mastered: 0 }]));
+
+    // Baseline: today counts from current cards
+    const today = days[days.length - 1];
+    (cards || []).forEach(c => {
+      const bucket = getSrsBucket(c);
+      if (bucket === 'archived') snapshotByDay[today].Mastered++;
+      else if (bucket === 'new') snapshotByDay[today].New++;
+      else if (bucket === 'progressing') snapshotByDay[today].Developing++;
+      else snapshotByDay[today]['Near-Mastery']++;
     });
-    
-    return Object.entries(stateHistory)
-      .sort((a, b) => new Date(a[0]) - new Date(b[0]))
-      .map(([date, states]) => ({ date, ...states }))
-      .slice(-14);
-  }, [improvements]);
+
+    // For each attempt day, count stateAfter.status transitions as a lightweight trend signal
+    (attempts || []).forEach(a => {
+      const dateStr = a.attemptedAt ? new Date(a.attemptedAt).toISOString().split('T')[0] : null;
+      if (!dateStr || !snapshotByDay[dateStr]) return;
+      const s = a.stateAfter?.status;
+      if (s === 'graduated') snapshotByDay[dateStr].Mastered++;
+      else if (s === 'new') snapshotByDay[dateStr].New++;
+      else if (s === 'learning') snapshotByDay[dateStr].Developing++;
+      else if (s === 'review') snapshotByDay[dateStr]['Near-Mastery']++;
+    });
+
+    return days.map(d => ({ date: d, ...snapshotByDay[d] }));
+  }, [cards, attempts]);
   
   return (
     <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
@@ -629,9 +649,9 @@ function ImprovementTrendChart({ improvements }) {
           <YAxis />
           <Tooltip />
           <Legend />
-          <Area type="monotone" dataKey="Unprocessed" stackId="1" stroke="#ef4444" fill="#fecaca" />
-          <Area type="monotone" dataKey="Acquiring" stackId="1" stroke="#f59e0b" fill="#fed7aa" />
-          <Area type="monotone" dataKey="Consolidating" stackId="1" stroke="#eab308" fill="#fef08a" />
+          <Area type="monotone" dataKey="New" stackId="1" stroke="#ef4444" fill="#fecaca" />
+          <Area type="monotone" dataKey="Developing" stackId="1" stroke="#f59e0b" fill="#fed7aa" />
+          <Area type="monotone" dataKey="Near-Mastery" stackId="1" stroke="#eab308" fill="#fef08a" />
           <Area type="monotone" dataKey="Mastered" stackId="1" stroke="#22c55e" fill="#bbf7d0" />
         </AreaChart>
       </ResponsiveContainer>
@@ -642,27 +662,28 @@ function ImprovementTrendChart({ improvements }) {
 /**
  * RetentionDashboard: Learning metrics overview
  */
-function RetentionDashboard({ mistakes, improvements }) {
+function RetentionDashboard({ cards = [], attempts = [] }) {
   const { t, tf } = useLanguage();
   const [open, setOpen] = useState(true);
   
   const stats = useMemo(() => {
     const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
-    const addedThisWeek = mistakes.filter(
-      (m) => new Date(m.lastAttempted).getTime() >= weekAgo
-    ).length;
-    const masteredThisWeek = Object.values(improvements).filter(
-      (d) => (d.correctCount || 0) >= MASTERY_THRESHOLD &&
-             d.lastCorrect &&
-             new Date(d.lastCorrect).getTime() >= weekAgo
-    ).length;
+    const addedThisWeek = (cards || []).filter((c) => {
+      const ts = c.createdAt ? new Date(c.createdAt).getTime() : 0;
+      return ts >= weekAgo;
+    }).length;
+
+    const masteredThisWeek = (attempts || []).filter((a) => {
+      const ts = a.attemptedAt ? new Date(a.attemptedAt).getTime() : 0;
+      return ts >= weekAgo && a?.stateAfter?.status === 'graduated';
+    }).length;
     
     const subtopicMap = {};
-    mistakes.forEach((m) => {
-      const key = m.Subtopic || 'Unknown';
+    (cards || []).filter(c => c.isActive !== false).forEach((c) => {
+      const key = c.subtopic || 'Unknown';
       if (!subtopicMap[key]) subtopicMap[key] = { count: 0, repeats: 0 };
       subtopicMap[key].count++;
-      if (m.attemptCount > 1) subtopicMap[key].repeats++;
+      if ((c.failedAttempts || 0) > 0) subtopicMap[key].repeats++;
     });
     
     const weakest = Object.entries(subtopicMap)
@@ -670,7 +691,7 @@ function RetentionDashboard({ mistakes, improvements }) {
       .slice(0, 6);
     
     return { addedThisWeek, masteredThisWeek, weakest };
-  }, [mistakes, improvements]);
+  }, [cards, attempts]);
   
   const decayLabel =
     stats.addedThisWeek === 0 && stats.masteredThisWeek === 0
@@ -994,7 +1015,7 @@ function KanbanViewDeck({ columns, errorTags, onTag, onViewFull }) {
 // ═══════════════════════════════════════════════════════════════════════════════
 // MAIN COMPONENT
 // ═══════════════════════════════════════════════════════════════════════════════
-export default function MistakeNotebookPage() {
+export default function MistakeNotebookPage({ questions = [] }) {
   const { currentUser } = useAuth();
   const { t, tf } = useLanguage();
   const navigate = useNavigate();
@@ -1002,16 +1023,16 @@ export default function MistakeNotebookPage() {
   // Core state
   const [mistakes, setMistakes] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [improvements, setImprovements] = useState({});
+  const [error, setError] = useState(null);
+  const [srsCards, setSrsCards] = useState([]);
+  const [reviewAttempts, setReviewAttempts] = useState([]);
   const [errorTags, setErrorTags] = useState(() =>
     JSON.parse(localStorage.getItem('mistake_error_tags') || '{}')
   );
   const [recentQuizTopics, setRecentQuizTopics] = useState(() =>
     JSON.parse(localStorage.getItem('recent_quiz_topics') || '[]')
   );
-  const [archivedMistakes, setArchivedMistakes] = useState(() =>
-    JSON.parse(localStorage.getItem('mistake_archive') || '{}')
-  );
+  const [archivedMistakes, setArchivedMistakes] = useState({});
   
   // Filter state
   const [questionCount, setQuestionCount] = useState('10');
@@ -1037,56 +1058,77 @@ export default function MistakeNotebookPage() {
     if (!currentUser) { setLoading(false); return; }
     try {
       setLoading(true);
-      const attempts = await quizService.getUserAttempts(currentUser.uid, 100);
+      setError(null);
+      const [cards, srsAttempts, quizAttempts] = await Promise.all([
+        srsService.getAllCards(currentUser.uid),
+        srsService.getRecentReviewAttempts(currentUser.uid, 30),
+        quizService.getUserAttempts(currentUser.uid, 200)
+      ]);
+
+      setSrsCards(cards);
+      setReviewAttempts(srsAttempts);
+
+      const questionMap = new Map((questions || []).map(q => [q.ID, q]));
+      const cardByQuestionId = new Map((cards || []).map(c => [c.questionId, c]));
+
+      const archivedByQuestionId = {};
+      (cards || []).filter(c => c.isActive === false).forEach(c => {
+        archivedByQuestionId[c.questionId] = { ...c };
+      });
+      setArchivedMistakes(archivedByQuestionId);
+
       const incorrectMap = new Map();
-      const improvementData = JSON.parse(
-        localStorage.getItem('mistake_improvements') || '{}'
-      );
-      
-      attempts.forEach((attempt) => {
-        if (!attempt.answers || !attempt.questions) return;
-        attempt.questions.forEach((question) => {
-          const userAnswer = attempt.answers[question.ID];
-          const isCorrect = userAnswer && userAnswer === question.CorrectOption;
-          
-          if (isCorrect && improvementData[question.ID]) {
-            improvementData[question.ID].correctCount =
-              (improvementData[question.ID].correctCount || 0) + 1;
-            improvementData[question.ID].lastCorrect = attempt.timestamp;
+      (quizAttempts || []).forEach((attempt) => {
+        const qs = attempt?.questions || [];
+        const ans = attempt?.answers || {};
+        if (!Array.isArray(qs) || !ans) return;
+
+        qs.forEach((q) => {
+          const qid = q?.ID;
+          if (!qid) return;
+          const userAnswer = ans[qid];
+          if (!userAnswer) return;
+          const isCorrect = userAnswer === q.CorrectOption;
+          if (isCorrect) return;
+
+          if (!incorrectMap.has(qid)) {
+            incorrectMap.set(qid, {
+              ...(questionMap.get(qid) || q),
+              ID: qid,
+              attemptCount: 1,
+              lastAttempted: attempt.timestamp || attempt.completedAt || attempt.createdAt || new Date().toISOString(),
+              userAnswer,
+            });
+            return;
           }
-          
-          if (userAnswer && userAnswer !== question.CorrectOption) {
-            const improveCount = improvementData[question.ID]?.correctCount || 0;
-            if (improveCount >= MASTERY_THRESHOLD) return;
-            
-            if (!incorrectMap.has(question.ID)) {
-              incorrectMap.set(question.ID, {
-                ...question,
-                attemptCount: 1,
-                lastAttempted: attempt.timestamp,
-                userAnswer,
-                improvementCount: improveCount,
-              });
-            } else {
-              const existing = incorrectMap.get(question.ID);
-              existing.attemptCount += 1;
-              existing.improvementCount = improveCount;
-              if (new Date(attempt.timestamp) > new Date(existing.lastAttempted)) {
-                existing.lastAttempted = attempt.timestamp;
-                existing.userAnswer = userAnswer;
-              }
-            }
+
+          const existing = incorrectMap.get(qid);
+          existing.attemptCount += 1;
+          const ts = attempt.timestamp || attempt.completedAt || attempt.createdAt;
+          if (ts && new Date(ts) > new Date(existing.lastAttempted)) {
+            existing.lastAttempted = ts;
+            existing.userAnswer = userAnswer;
           }
         });
       });
-      
-      localStorage.setItem('mistake_improvements', JSON.stringify(improvementData));
-      setImprovements(improvementData);
-      
-      const arr = Array.from(incorrectMap.values()).sort(
-        (a, b) => calcPriority(b) - calcPriority(a)
-      );
-      setMistakes(arr);
+
+      const deck = Array.from(incorrectMap.values())
+        .map((m) => {
+          const card = cardByQuestionId.get(m.ID);
+          return {
+            ...m,
+            ...(card || {}),
+            questionId: card?.questionId || m.ID,
+            lastReviewedAt: card?.lastReviewedAt || null,
+            repetitionCount: card?.repetitionCount || 0,
+            improvementCount: card?.repetitionCount || 0,
+            status: card?.status || 'new',
+            isActive: card?.isActive ?? true,
+          };
+        })
+        .sort((a, b) => calcPriority(b) - calcPriority(a));
+
+      setMistakes(deck);
       
     } catch (err) {
       console.error(err);
@@ -1102,15 +1144,41 @@ export default function MistakeNotebookPage() {
   }, [errorTags]);
   
   useEffect(() => {
-    const updated = applyRuleOfThree(improvements);
-    setArchivedMistakes(JSON.parse(localStorage.getItem('mistake_archive') || '{}'));
-  }, [improvements]);
+    applyRuleOfThree({});
+  }, []);
   
   // Computed values
   const allTopics = useMemo(
     () => [...new Set(mistakes.map((m) => m.Topic).filter(Boolean))].sort(),
     [mistakes]
   );
+
+  const topicErrorDensity = useMemo(() => {
+    const byTopic = {};
+    const totalByTopic = {};
+
+    (questions || []).forEach((q) => {
+      if (!q?.Topic) return;
+      totalByTopic[q.Topic] = (totalByTopic[q.Topic] || 0) + 1;
+    });
+
+    mistakes.forEach((m) => {
+      const topic = m.Topic || m.topic;
+      if (!topic) return;
+      const wrongCount = Number(m.attemptCount || 0);
+      const weight = getSrsContributionWeight(m);
+      const score = wrongCount * weight;
+      byTopic[topic] = (byTopic[topic] || 0) + score;
+    });
+
+    return Object.entries(byTopic)
+      .map(([topic, score]) => {
+        const total = totalByTopic[topic] || 0;
+        const density = total > 0 ? score / total : score;
+        return { topic, score, density, total };
+      })
+      .sort((a, b) => b.density - a.density);
+  }, [mistakes, questions]);
   
   const availableSubtopics = useMemo(() => {
     const base = selectedTopics.length > 0
@@ -1146,10 +1214,8 @@ export default function MistakeNotebookPage() {
     
     if (selectedMasteryLevels.length > 0) {
       result = result.filter((m) => {
-        const ic = m.improvementCount ?? 0;
         return selectedMasteryLevels.some((lvl) => {
-          const { min, max } = MASTERY_LEVELS[lvl];
-          return ic >= min && ic <= max;
+          return getSrsBucket(m) === lvl;
         });
       });
     }
@@ -1164,9 +1230,9 @@ export default function MistakeNotebookPage() {
   
   // Kanban columns
   const kanbanColumns = useMemo(() => ({
-    new: filteredMistakes.filter(m => (m.improvementCount ?? 0) === 0),
-    progressing: filteredMistakes.filter(m => (m.improvementCount ?? 0) === 1),
-    near: filteredMistakes.filter(m => (m.improvementCount ?? 0) === 2),
+    new: filteredMistakes.filter(m => getSrsBucket(m) === 'new'),
+    progressing: filteredMistakes.filter(m => getSrsBucket(m) === 'progressing'),
+    near: filteredMistakes.filter(m => getSrsBucket(m) === 'near'),
   }), [filteredMistakes]);
   
   // Handlers
@@ -1208,7 +1274,28 @@ export default function MistakeNotebookPage() {
     
     quizStorage.clearQuizData();
     quizStorage.saveSelectedQuestions(selected);
-    localStorage.setItem('quiz_mode', 'mistakes');
+
+    const selectedSrsCards = selected.filter((card) => !!card?.id);
+    if (selectedSrsCards.length === selected.length) {
+      localStorage.setItem('quiz_mode', 'spaced-repetition');
+      localStorage.setItem(
+        'quiz_srs_cards',
+        JSON.stringify(
+          selectedSrsCards.map((card) => ({
+            id: card.id,
+            questionId: card.questionId,
+            topic: card.topic || card.Topic,
+            subtopic: card.subtopic || card.Subtopic || null,
+            nextReviewDate: card.nextReviewDate,
+            status: card.status,
+          }))
+        )
+      );
+    } else {
+      localStorage.setItem('quiz_mode', 'mistakes');
+      localStorage.removeItem('quiz_srs_cards');
+    }
+
     localStorage.setItem('quiz_timer_enabled', timerEnabled.toString());
     localStorage.setItem('quiz_is_timed_mode', isTimedMode.toString());
     navigate('/quiz');
@@ -1247,13 +1334,24 @@ export default function MistakeNotebookPage() {
       </div>
     );
   }
+
+  if (error) {
+    return (
+      <div className="flex items-center justify-center h-screen bg-slate-50">
+        <div className="text-center bg-white p-8 rounded-2xl shadow-sm border border-red-200 max-w-lg">
+          <p className="text-red-600 font-black mb-2">{t('notebook.loadingMistakes')}</p>
+          <p className="text-slate-600 text-sm">{String(error?.message || error)}</p>
+        </div>
+      </div>
+    );
+  }
   
   // ═══════════════════════════════════════════════════════════════════════════════
   // RENDER
   // ═══════════════════════════════════════════════════════════════════════════════
   
   return (
-    <div className="flex h-screen bg-slate-50 overflow-hidden">
+    <div className="flex h-[calc(100dvh-4rem)] bg-slate-50 overflow-hidden">
       {/* Full Question Modal */}
       <AnimatePresence>
         {fullViewMistake && (
@@ -1270,9 +1368,9 @@ export default function MistakeNotebookPage() {
           SIDEBAR: Practice Configurator
           ═══════════════════════════════════════════════════════════════════════════════ */}
       
-      <div className="w-80 bg-white border-r border-slate-200 flex flex-col overflow-y-auto">
+      <div className="w-80 h-full bg-white border-r border-slate-200 flex flex-col overflow-hidden min-h-0">
         {/* Header */}
-        <div className="p-4 border-b border-slate-200 flex items-center gap-2">
+        <div className="p-3 border-b border-slate-200 flex items-center gap-2">
           <button
             onClick={() => navigate('/dashboard')}
             className="p-2 hover:bg-slate-100 rounded-lg transition-all"
@@ -1287,7 +1385,7 @@ export default function MistakeNotebookPage() {
         </div>
         
         {/* Configurator */}
-        <div className="flex-1 p-4 space-y-4 overflow-y-auto">
+        <div className="flex-1 p-3 space-y-4 overflow-y-auto min-h-0">
           {/* Question Count */}
           <div>
             <label className="text-xs font-black text-slate-600 uppercase tracking-widest mb-2 flex items-center gap-1">
@@ -1456,11 +1554,11 @@ export default function MistakeNotebookPage() {
         </div>
         
         {/* Practice Button */}
-        <div className="p-4 border-t border-slate-200">
+        <div className="p-3 border-t border-slate-200 bg-white">
           <button
             onClick={handlePracticeMistakes}
             disabled={filteredMistakes.length === 0}
-            className="w-full py-3 bg-orange-600 text-white rounded-xl font-black text-sm shadow-lg hover:bg-orange-700 disabled:bg-slate-300 transition-all flex items-center justify-center gap-2 active:scale-95"
+            className="w-full py-2.5 bg-orange-600 text-white rounded-xl font-black text-sm shadow-lg hover:bg-orange-700 disabled:bg-slate-300 transition-all flex items-center justify-center gap-2 active:scale-95"
           >
             <Play fill="currentColor" size={16} />
             {selectedMistakeIds.size > 0 
@@ -1611,22 +1709,67 @@ export default function MistakeNotebookPage() {
                   </div>
                 </div>
                 
-                {/* Interactive Heatmap */}
-                <InteractiveTopicHeatmap 
-                  mistakes={mistakes} 
-                  selectedTopics={selectedTopics}
-                  onTopicToggle={toggleTopic}
-                />
-                
-                {/* Retention Dashboard */}
-                <RetentionDashboard mistakes={mistakes} improvements={improvements} />
-                
-                {/* Charts */}
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                  <CalendarHeatmap improvements={improvements} />
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                  {/* LEFT: Error density + topic order */}
+                  <div className="lg:col-span-1 space-y-6">
+                    <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
+                      <h3 className="font-bold text-lg text-slate-800 mb-4 flex items-center gap-2">
+                        <Target size={20} className="text-rose-600" />
+                        {t('notebook.topicsToFocus')}
+                      </h3>
+
+                      <div className="space-y-2">
+                        {topicErrorDensity.slice(0, 10).map((row, idx) => (
+                          <button
+                            key={row.topic}
+                            onClick={() => toggleTopic(row.topic)}
+                            className={`w-full text-left p-3 rounded-xl border transition-all hover:shadow-sm ${
+                              selectedTopics.includes(row.topic)
+                                ? 'border-rose-300 bg-rose-50'
+                                : 'border-slate-200 bg-white hover:bg-slate-50'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between gap-3">
+                              <div className="min-w-0">
+                                <div className="text-sm font-black text-slate-800 truncate">
+                                  #{idx + 1} {row.topic}
+                                </div>
+                                <div className="text-xs text-slate-500 mt-0.5">
+                                  {tf('notebook.topicFilter', { topic: row.topic })}
+                                </div>
+                              </div>
+
+                              <div className="shrink-0 text-right">
+                                <div className="text-xs font-black text-rose-600">
+                                  {row.density.toFixed(2)}
+                                </div>
+                                <div className="text-[11px] text-slate-500">
+                                  {Math.round(row.score)} / {row.total || '—'}
+                                </div>
+                              </div>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Optional: keep the interactive heatmap (mistake-based) */}
+                    <InteractiveTopicHeatmap 
+                      mistakes={mistakes} 
+                      selectedTopics={selectedTopics}
+                      onTopicToggle={toggleTopic}
+                    />
+                  </div>
+
+                  {/* RIGHT: SRS charts */}
+                  <div className="lg:col-span-2 space-y-6">
+                    <RetentionDashboard cards={srsCards} attempts={reviewAttempts} />
+                    <div className="grid grid-cols-1 gap-6">
+                      <CalendarHeatmap attempts={reviewAttempts} />
+                      <ImprovementTrendChart cards={srsCards} attempts={reviewAttempts} />
+                    </div>
+                  </div>
                 </div>
-                
-                <ImprovementTrendChart improvements={improvements} />
               </motion.div>
             )}
             

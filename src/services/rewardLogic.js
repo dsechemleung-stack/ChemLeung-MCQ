@@ -2,31 +2,21 @@
 // REWARD LOGIC - Token Awards with Anti-Cheat
 // ============================================================================
 
-import { awardTokens, canClaimReward, recordRewardClaim } from './tokenService';
+import { awardTokens, canClaimReward, recordRewardClaim, recordRewardClaimsBatch } from './tokenService';
 
 // ────────────────────────────────────────────────────────────────────────────
 // REWARD TIERS
 // ────────────────────────────────────────────────────────────────────────────
 
 const REWARDS = {
-  // MCQ Completion Rewards (based on percentage)
-  MCQ_PERFECT: 10,      // 100%
-  MCQ_EXCELLENT: 5,     // 80-99%
-  MCQ_GOOD: 2,          // 60-79%
-  MCQ_COMPLETE: 1,      // < 60% (participation)
+  // Per-question rewards
+  FIRST_CORRECT: 2,
+  CORRECTED_MISTAKE: 1,
 
-  // Mistake Book Rewards
-  MISTAKE_CLEARED: 1,   // Per unique question (24h cooldown)
-
-  // Leaderboard Rewards (Weekly)
-  LEADERBOARD_GOLD_WEEKLY: 60,
-  LEADERBOARD_SILVER_WEEKLY: 40,
-  LEADERBOARD_BRONZE_WEEKLY: 20,
-
-  // Leaderboard Rewards (Daily - via Weekly/7)
-  LEADERBOARD_GOLD_DAILY: 10,
-  LEADERBOARD_SILVER_DAILY: 6,
-  LEADERBOARD_BRONZE_DAILY: 3,
+  // Quiz completion bonus (only if totalQuestions >= 10)
+  QUIZ_BONUS_100: 20,
+  QUIZ_BONUS_80: 15,
+  QUIZ_BONUS_50: 10,
 
   // Streak Bonuses
   STREAK_WEEK: 15,      // 7-day streak
@@ -51,45 +41,43 @@ export async function rewardMCQCompletion(userId, attemptData) {
     let tokensAwarded = 0;
     let rewardTier = '';
 
-    // Determine reward tier
-    if (percentage === 100) {
-      tokensAwarded = REWARDS.MCQ_PERFECT;
-      rewardTier = 'Perfect Score! 🏆';
-    } else if (percentage >= 80) {
-      tokensAwarded = REWARDS.MCQ_EXCELLENT;
-      rewardTier = 'Excellent! ⭐';
-    } else if (percentage >= 60) {
-      tokensAwarded = REWARDS.MCQ_GOOD;
-      rewardTier = 'Good Work! 👍';
+    // Quiz completion bonus only applies if quiz has 10+ questions
+    if (totalQuestions >= 10) {
+      if (percentage === 100) {
+        tokensAwarded = REWARDS.QUIZ_BONUS_100;
+        rewardTier = '100% Bonus';
+      } else if (percentage >= 80) {
+        tokensAwarded = REWARDS.QUIZ_BONUS_80;
+        rewardTier = '80% Bonus';
+      } else if (percentage >= 50) {
+        tokensAwarded = REWARDS.QUIZ_BONUS_50;
+        rewardTier = '50% Bonus';
+      } else {
+        tokensAwarded = 0;
+        rewardTier = 'No Bonus';
+      }
     } else {
-      tokensAwarded = REWARDS.MCQ_COMPLETE;
-      rewardTier = 'Keep Practicing! 💪';
-    }
-
-    // Bonus for completing many questions
-    if (totalQuestions >= 40) {
-      tokensAwarded += 3;
-      rewardTier += ' +3 Marathon Bonus';
-    } else if (totalQuestions >= 20) {
-      tokensAwarded += 1;
-      rewardTier += ' +1 Length Bonus';
+      tokensAwarded = 0;
+      rewardTier = 'No Bonus (min 10 questions)';
     }
 
     const reason = `MCQ Completed (${percentage}%) - ${rewardTier}`;
     
-    await awardTokens(userId, tokensAwarded, reason, {
-      category: 'mcq_completion',
-      percentage,
-      totalQuestions,
-      correctAnswers,
-      topics,
-      attemptId
-    });
+    if (tokensAwarded > 0) {
+      await awardTokens(userId, tokensAwarded, reason, {
+        category: 'quiz_bonus',
+        percentage,
+        totalQuestions,
+        correctAnswers,
+        topics,
+        attemptId
+      });
+    }
 
     return {
       success: true,
       tokensAwarded,
-      message: `+${tokensAwarded} tokens! ${rewardTier}`
+      message: tokensAwarded > 0 ? `+${tokensAwarded} tokens! ${rewardTier}` : `No token bonus (${rewardTier})`
     };
   } catch (error) {
     console.error('Error rewarding MCQ completion:', error);
@@ -119,22 +107,10 @@ export async function rewardMistakeCleared(userId, questionId) {
       };
     }
 
-    // Award token
-    const tokensAwarded = REWARDS.MISTAKE_CLEARED;
-    const reason = `Mistake Cleared: Question ${questionId.substring(0, 8)}`;
-
-    await awardTokens(userId, tokensAwarded, reason, {
-      category: 'mistake_cleared',
-      questionId
-    });
-
-    // Record cooldown
-    await recordRewardClaim(userId, rewardKey, 24);
-
+    // This reward is now handled by per-question corrected-mistake logic.
     return {
-      success: true,
-      tokensAwarded,
-      message: `+${tokensAwarded} token for mastering this question!`
+      success: false,
+      tokensAwarded: 0
     };
   } catch (error) {
     console.error('Error rewarding mistake cleared:', error);
@@ -152,37 +128,18 @@ export async function rewardMistakeCleared(userId, questionId) {
 export async function rewardLeaderboardPlacement(userId, rank, period = 'weekly') {
   try {
     let tokensAwarded = 0;
-    let medal = '';
-
+    const weekly = Math.max(0, 11 - Number(rank || 0));
     if (period === 'weekly') {
-      if (rank === 1) {
-        tokensAwarded = REWARDS.LEADERBOARD_GOLD_WEEKLY;
-        medal = '🥇 Weekly Gold';
-      } else if (rank === 2) {
-        tokensAwarded = REWARDS.LEADERBOARD_SILVER_WEEKLY;
-        medal = '🥈 Weekly Silver';
-      } else if (rank === 3) {
-        tokensAwarded = REWARDS.LEADERBOARD_BRONZE_WEEKLY;
-        medal = '🥉 Weekly Bronze';
-      }
-    } else if (period === 'daily') {
-      if (rank === 1) {
-        tokensAwarded = REWARDS.LEADERBOARD_GOLD_DAILY;
-        medal = '🥇 Daily Gold';
-      } else if (rank === 2) {
-        tokensAwarded = REWARDS.LEADERBOARD_SILVER_DAILY;
-        medal = '🥈 Daily Silver';
-      } else if (rank === 3) {
-        tokensAwarded = REWARDS.LEADERBOARD_BRONZE_DAILY;
-        medal = '🥉 Daily Bronze';
-      }
+      tokensAwarded = weekly;
+    } else if (period === 'monthly') {
+      tokensAwarded = weekly * 3;
     }
 
     if (tokensAwarded === 0) {
       return { success: false, tokensAwarded: 0 };
     }
 
-    const reason = `Leaderboard Reward: ${medal}`;
+    const reason = `Leaderboard Reward: ${period} #${rank}`;
 
     await awardTokens(userId, tokensAwarded, reason, {
       category: 'leaderboard',
@@ -193,10 +150,76 @@ export async function rewardLeaderboardPlacement(userId, rank, period = 'weekly'
     return {
       success: true,
       tokensAwarded,
-      message: `${medal} - +${tokensAwarded} tokens!`
+      message: `+${tokensAwarded} tokens!`
     };
   } catch (error) {
     console.error('Error rewarding leaderboard placement:', error);
+    return { success: false, tokensAwarded: 0 };
+  }
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// PER-QUESTION REWARDS (First-correct + corrected mistakes)
+// ────────────────────────────────────────────────────────────────────────────
+
+export async function rewardQuizQuestionTokens(userId, questions = [], answers = {}, quizMode = 'practice') {
+  try {
+    if (!userId || !Array.isArray(questions) || questions.length === 0) {
+      return { success: false, tokensAwarded: 0 };
+    }
+
+    const isMistakeLikeMode = ['mistakes', 'spaced-repetition'].includes(quizMode);
+
+    const firstCorrectRewardKeys = [];
+    const correctedRewardKeys = [];
+
+    const checks = await Promise.all(
+      questions.map(async (q) => {
+        const qid = q?.ID;
+        if (!qid) return null;
+        const wasCorrect = answers[qid] && answers[qid] === q.CorrectOption;
+        if (!wasCorrect) return null;
+
+        const firstKey = `first_correct_${qid}`;
+        const correctedKey = `corrected_${qid}`;
+
+        const [first, corrected] = await Promise.all([
+          canClaimReward(userId, firstKey),
+          isMistakeLikeMode ? canClaimReward(userId, correctedKey) : Promise.resolve({ canClaim: false })
+        ]);
+
+        return { qid, firstKey, correctedKey, canFirst: !!first?.canClaim, canCorrected: !!corrected?.canClaim };
+      })
+    );
+
+    checks.filter(Boolean).forEach((c) => {
+      if (c.canFirst) firstCorrectRewardKeys.push(c.firstKey);
+      if (c.canCorrected) correctedRewardKeys.push(c.correctedKey);
+    });
+
+    const firstCount = firstCorrectRewardKeys.length;
+    const correctedCount = correctedRewardKeys.length;
+    const tokensAwarded = (firstCount * REWARDS.FIRST_CORRECT) + (correctedCount * REWARDS.CORRECTED_MISTAKE);
+
+    if (tokensAwarded <= 0) {
+      return { success: true, tokensAwarded: 0 };
+    }
+
+    const reason = `MCQ Rewards: ${firstCount} first-correct, ${correctedCount} corrected`;
+    await awardTokens(userId, tokensAwarded, reason, {
+      category: 'mcq_per_question',
+      quizMode,
+      firstCorrectCount: firstCount,
+      correctedCount
+    });
+
+    // first-correct should never be claimable again; corrected has 24h cooldown
+    await recordRewardClaimsBatch(userId, firstCorrectRewardKeys, 99999);
+    await recordRewardClaimsBatch(userId, correctedRewardKeys, 24);
+
+    return { success: true, tokensAwarded };
+  } catch (error) {
+    console.error('Error rewarding per-question tokens:', error);
     return { success: false, tokensAwarded: 0 };
   }
 }

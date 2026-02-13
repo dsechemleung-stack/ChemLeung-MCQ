@@ -113,6 +113,8 @@ export const quizService = {
         return {
           userId: u.userId,
           displayName: userData.displayName || 'Unknown',
+          equippedProfilePic: (userData.equipped || {}).profilePic || 'flask_blue',
+          equippedTheme: (userData.equipped || {}).theme || 'default',
           level: userData.level || null,          // S4 / S5 / S6
           attemptCount: u.attempts.length,
           averageScore: Math.round(u.totalScore / u.attempts.length),
@@ -176,6 +178,8 @@ export const quizService = {
             userId: docSnap.id,
             displayName: data.displayName || 'Unknown',
             level: data.level || null,
+            equippedProfilePic: (data.equipped || {}).profilePic || 'flask_blue',
+            equippedTheme: (data.equipped || {}).theme || 'default',
             totalAttempts: data.totalAttempts || 0,
             totalQuestions: data.totalQuestions || 0,
             totalCorrect: data.totalCorrect || 0,

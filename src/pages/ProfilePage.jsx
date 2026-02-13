@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useLanguage } from '../contexts/LanguageContext';
@@ -7,6 +7,8 @@ import { doc, updateDoc } from 'firebase/firestore';
 import { db } from '../firebase/config';
 import { User, GraduationCap, Mail, Calendar, Save, ArrowLeft, Trophy, Target, BookOpen, Lock, Unlock } from 'lucide-react';
 import { useQuizData } from '../hooks/useQuizData';
+import Avatar from '../components/Avatar';
+import { STORE_ITEMS } from '../utils/storeItems';
 
 const SHEET_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTK36yaUN-NMCkQNT-DAHgc6FMZPjUc0Yv3nYEK4TA9W2qE9V1TqVD10Tq98-wXQoAvKOZlwGWRSDkU/pub?gid=1182550140&single=true&output=csv';
 
@@ -22,6 +24,20 @@ export default function ProfilePage() {
   const [topicExceptions, setTopicExceptions] = useState(userProfile?.topicExceptions || []);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState({ type: '', text: '' });
+
+  // Profile picture editor state (ChemStore owned items only)
+  const inventory = userProfile?.inventory || [];
+  const equipped = userProfile?.equipped || {};
+  const ownedProfilePics = STORE_ITEMS.profilePics.filter(item => inventory.includes(item.id) || item.price === 0);
+  const ownedThemes = STORE_ITEMS.themes.filter(item => inventory.includes(item.id) || item.price === 0);
+
+  const [selectedProfilePicId, setSelectedProfilePicId] = useState(equipped.profilePic || 'flask_blue');
+  const [selectedThemeId, setSelectedThemeId] = useState(equipped.theme || 'default');
+
+  useEffect(() => {
+    setSelectedProfilePicId((userProfile?.equipped || {}).profilePic || 'flask_blue');
+    setSelectedThemeId((userProfile?.equipped || {}).theme || 'default');
+  }, [userProfile]);
 
   // Extract all unique topics from questions
   const allTopics = useMemo(() => {
@@ -81,6 +97,11 @@ export default function ProfilePage() {
         level: level,
         learnedUpTo: learnedUpTo,
         topicExceptions: topicExceptions,
+        equipped: {
+          ...(userProfile?.equipped || {}),
+          profilePic: selectedProfilePicId,
+          theme: selectedThemeId
+        },
         updatedAt: new Date().toISOString()
       });
 
@@ -219,6 +240,71 @@ export default function ProfilePage() {
               className="w-full px-4 py-3 border-2 border-slate-200 rounded-lg focus:border-lab-blue focus:ring-2 focus:ring-blue-100 outline-none transition-all"
               placeholder={t('profile.enterYourName')}
             />
+          </div>
+
+          {/* Profile Picture Editor */}
+          <div className="border-t-2 border-slate-100 pt-6">
+            <label className="block text-sm font-bold text-slate-700 mb-3 flex items-center gap-2">
+              <User size={16} />
+              Profile Picture
+            </label>
+
+            <div className="flex items-center gap-4 mb-4">
+              <Avatar
+                userId={currentUser?.uid}
+                displayName={displayName}
+                profilePicId={selectedProfilePicId}
+                themeId={selectedThemeId}
+                fetchUser={false}
+                size="lg"
+              />
+              <div className="text-sm text-slate-600">
+                <div className="font-bold text-slate-800">Preview</div>
+                <div className="text-xs text-slate-500">Only items you own (or free items) can be used.</div>
+              </div>
+            </div>
+
+            <div className="mb-4">
+              <div className="text-xs font-black text-slate-500 uppercase tracking-wide mb-2">Icon</div>
+              <div className="grid grid-cols-5 sm:grid-cols-8 gap-2">
+                {ownedProfilePics.map(item => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => setSelectedProfilePicId(item.id)}
+                    className={`p-2 rounded-xl border-2 transition-all flex items-center justify-center text-xl ${
+                      selectedProfilePicId === item.id
+                        ? 'border-lab-blue bg-blue-50'
+                        : 'border-slate-200 hover:border-slate-300'
+                    }`}
+                    title={item.name}
+                  >
+                    {item.icon}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <div className="text-xs font-black text-slate-500 uppercase tracking-wide mb-2">Background</div>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                {ownedThemes.map(theme => (
+                  <button
+                    key={theme.id}
+                    type="button"
+                    onClick={() => setSelectedThemeId(theme.id)}
+                    className={`p-3 rounded-xl border-2 text-left transition-all ${
+                      selectedThemeId === theme.id
+                        ? 'border-lab-blue bg-blue-50'
+                        : 'border-slate-200 hover:border-slate-300'
+                    }`}
+                  >
+                    <div className="w-full h-10 rounded-lg border border-white/50 shadow-inner" style={{ background: theme.preview }} />
+                    <div className="mt-2 text-xs font-bold text-slate-700 truncate">{theme.name}</div>
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
 
           {/* Email (Read-only) */}

@@ -10,6 +10,7 @@ import {
   Lock, Tag, Pin, ChevronLeft, AlertCircle
 } from 'lucide-react';
 import QuestionForum from '../components/QuestionForum';
+import Avatar from '../components/Avatar';
 
 const SHEET_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTK36yaUN-NMCkQNT-DAHgc6FMZPjUc0Yv3nYEK4TA9W2qE9V1TqVD10Tq98-wXQoAvKOZlwGWRSDkU/pub?gid=1182550140&single=true&output=csv';
 
@@ -252,9 +253,7 @@ function PostDetail({ postId, currentUser, onBack }) {
           </div>
           <div className="flex items-center justify-between pt-4 border-t border-slate-200">
             <div className="flex items-center gap-3 text-sm text-slate-500">
-              <div className="w-7 h-7 rounded-full bg-slate-300 flex items-center justify-center text-xs font-bold text-slate-700">
-                {post.userDisplayName?.charAt(0).toUpperCase() || 'U'}
-              </div>
+              <Avatar userId={post.userId} displayName={post.userDisplayName} size="xs" />
               <span className="font-semibold">{post.userDisplayName}</span>
               <span>·</span>
               <span>{formatDate(post.createdAt)}</span>
@@ -277,9 +276,7 @@ function PostDetail({ postId, currentUser, onBack }) {
             <div key={reply.id} className="bg-white rounded-xl border-2 border-slate-200 p-4">
               <div className="flex items-start justify-between gap-3 mb-2">
                 <div className="flex items-center gap-2">
-                  <div className="w-7 h-7 rounded-full bg-lab-blue flex items-center justify-center text-white text-xs font-bold">
-                    {reply.userDisplayName?.charAt(0).toUpperCase() || 'U'}
-                  </div>
+                  <Avatar userId={reply.userId} displayName={reply.userDisplayName} size="xs" />
                   <div>
                     <span className="font-bold text-slate-800 text-sm">{reply.userDisplayName}</span>
                     <span className="text-xs text-slate-400 ml-2">{formatDate(reply.createdAt)}</span>
@@ -326,9 +323,7 @@ function PostDetail({ postId, currentUser, onBack }) {
       {currentUser ? (
         <div className="bg-white rounded-xl border-2 border-slate-200 p-4">
           <div className="flex gap-3">
-            <div className="w-8 h-8 rounded-full bg-lab-blue flex items-center justify-center flex-shrink-0">
-              <span className="text-white font-bold text-xs">{currentUser.displayName?.charAt(0).toUpperCase() || 'U'}</span>
-            </div>
+            <Avatar userId={currentUser.uid} displayName={currentUser.displayName} size="sm" />
             <div className="flex-1">
               <textarea value={newReply} onChange={e => setNewReply(e.target.value)} rows="3"
                 placeholder={t('forum.writeReply')}

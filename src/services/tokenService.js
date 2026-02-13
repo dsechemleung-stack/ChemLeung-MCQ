@@ -5,7 +5,7 @@
 import { 
   doc, getDoc, setDoc, updateDoc, collection, addDoc, 
   query, orderBy, limit, getDocs, runTransaction, serverTimestamp,
-  onSnapshot, increment
+  onSnapshot, increment, writeBatch
 } from 'firebase/firestore';
 import { db } from '../firebase/config';
 
@@ -310,6 +310,28 @@ export async function recordRewardClaim(userId, rewardKey, cooldownHours = 24) {
     });
   } catch (error) {
     console.error('Error recording reward claim:', error);
+  }
+}
+
+/**
+ * Record multiple reward claims efficiently in one batch
+ */
+export async function recordRewardClaimsBatch(userId, rewardKeys = [], cooldownHours = 24) {
+  try {
+    if (!userId || !Array.isArray(rewardKeys) || rewardKeys.length === 0) return;
+
+    const batch = writeBatch(db);
+    rewardKeys.forEach((rewardKey) => {
+      const cooldownRef = doc(db, 'users', userId, 'rewardCooldowns', rewardKey);
+      batch.set(cooldownRef, {
+        lastClaimed: serverTimestamp(),
+        cooldownHours,
+        updatedAt: serverTimestamp()
+      });
+    });
+    await batch.commit();
+  } catch (error) {
+    console.error('Error recording reward claims batch:', error);
   }
 }
 

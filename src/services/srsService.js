@@ -115,6 +115,44 @@ export async function getDueCards(userId, asOf = new Date()) {
 }
 
 /**
+ * Get all SRS cards for a user
+ */
+export async function getAllCards(userId) {
+  const cardsQuery = query(
+    collection(db, COLLECTIONS.CARDS),
+    where('userId', '==', userId)
+  );
+
+  const snapshot = await getDocs(cardsQuery);
+  return snapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() }));
+}
+
+/**
+ * Get recent review attempts for analytics
+ */
+export async function getRecentReviewAttempts(userId, days = 30) {
+  const since = new Date();
+  since.setDate(since.getDate() - days);
+
+  const attemptsQuery = query(
+    collection(db, COLLECTIONS.ATTEMPTS),
+    where('userId', '==', userId)
+  );
+
+  const snapshot = await getDocs(attemptsQuery);
+
+  const sinceIso = since.toISOString();
+  return snapshot.docs
+    .map(docSnap => ({ id: docSnap.id, ...docSnap.data() }))
+    .filter((a) => {
+      const attemptedAt = a?.attemptedAt;
+      if (!attemptedAt || typeof attemptedAt !== 'string') return false;
+      return attemptedAt >= sinceIso;
+    })
+    .sort((a, b) => String(a?.attemptedAt || '').localeCompare(String(b?.attemptedAt || '')));
+}
+
+/**
  * Get specific card by ID
  * 
  * @param {string} cardId - Card ID
@@ -394,6 +432,8 @@ export async function updateDueFlags(userId) {
 
 export const srsService = {
   createCardsFromMistakes,
+  getAllCards,
+  getRecentReviewAttempts,
   getDueCards,
   getCard,
   submitReview,
