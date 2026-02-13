@@ -7,6 +7,7 @@ import { quizStorage } from '../utils/quizStorage';
 import { quizService } from '../services/quizService';
 import { quizCompletionService } from '../services/quizCompletionService';
 import { calendarService } from '../services/calendarService';
+import { autoLogQuizCompletion } from '../utils/quizCompletionTracker';
 
 export default function ResultsPage() {
   const navigate = useNavigate();
@@ -26,7 +27,7 @@ export default function ResultsPage() {
     if (!questions || questions.length === 0 || Object.keys(userAnswers).length === 0) {
       navigate('/');
     }
-  }, []);
+  }, [navigate, questions, userAnswers]);
 
   useEffect(() => {
     async function saveAttemptToFirebase() {
@@ -44,6 +45,7 @@ export default function ResultsPage() {
         }, 0);
         const percentage = Math.round((correctAnswers / totalQuestions) * 100);
         const topics = [...new Set(questions.map(q => q.Topic))].filter(Boolean);
+        const subtopics = [...new Set(questions.map(q => q.Subtopic).filter(Boolean))];
         const timeSpent = questionTimes
           ? Object.values(questionTimes).reduce((sum, time) => sum + time, 0)
           : null;
@@ -89,7 +91,27 @@ export default function ResultsPage() {
           console.warn('⚠️ Some processing steps failed:', processingResults.errors);
         }
 
-        // 2. Mark calendar event as complete if this was a study plan session or review
+        // 2. Auto-log to calendar using quizCompletionTracker
+        const quizResults = {
+          totalQuestions,
+          correctAnswers,
+          timeSpent,
+          topics,
+          subtopics
+        };
+
+        const quizParams = {
+          mode: localStorage.getItem('quiz_mode'),
+          eventId: localStorage.getItem('quiz_event_id'),
+          timedMode: localStorage.getItem('quiz_timed_mode') === 'true',
+          timerEnabled: localStorage.getItem('quiz_timer_enabled') === 'true',
+          reviewMode: localStorage.getItem('quiz_review_mode')
+        };
+
+        await autoLogQuizCompletion(quizResults, currentUser.uid, quizParams);
+        console.log('✅ Quiz completion auto-logged to calendar');
+
+        // 3. Mark calendar event as complete if this was a study plan session or review
         try {
           const quizMode = localStorage.getItem('quiz_mode');
           const eventId = localStorage.getItem('quiz_event_id');

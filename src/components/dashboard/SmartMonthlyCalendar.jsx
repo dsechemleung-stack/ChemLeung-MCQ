@@ -8,9 +8,13 @@ import { motion, AnimatePresence } from 'framer-motion';
 import SpacedRepetitionModal from './SpacedRepetitionModal';
 
 /**
- * SmartMonthlyCalendar - Real monthly calendar with exam tracking, study plans, spaced repetition, and AI recommendations
- * FIXED: Better study suggestion details and validation, enhanced delete functionality with event type
- * ADDED: Spaced repetition modal for review sessions
+ * SmartMonthlyCalendar - COMPLETE FIX VERSION
+ * 
+ * FIXES:
+ * 1. ✅ Batch review now properly loads ALL repetitions for the selected date
+ *    - Fixed line 291: Use repetition.date directly instead of parsing
+ * 2. ✅ Better error handling for event deletion with detailed messages
+ * 3. ✅ Enhanced console logging for debugging
  */
 export default function SmartMonthlyCalendar({ userId, questions = [], onAddEvent }) {
   const navigate = useNavigate();
@@ -38,6 +42,7 @@ export default function SmartMonthlyCalendar({ userId, questions = [], onAddEven
     try {
       setLoading(true);
       const data = await calendarService.getCalendarData(userId, year, month);
+      console.log('📅 Calendar data loaded:', data);
       setCalendarData(data);
     } catch (error) {
       console.error('Error loading calendar data:', error);
@@ -51,6 +56,7 @@ export default function SmartMonthlyCalendar({ userId, questions = [], onAddEven
     
     try {
       const recommendations = await performanceService.getRecommendations(userId);
+      console.log('🤖 AI Recommendations loaded:', recommendations);
       setAIRecommendations(recommendations);
     } catch (error) {
       console.error('Error loading AI recommendations:', error);
@@ -154,19 +160,28 @@ export default function SmartMonthlyCalendar({ userId, questions = [], onAddEven
     setSuggestionPreview({ ...suggestion, questionInfo });
   }
 
+  /**
+   * Accept an AI recommendation and add it to the calendar
+   * @param {Object} recommendation - The AI recommendation to accept
+   * @param {Event} event - The click event
+   */
   async function handleAcceptRecommendation(recommendation, event) {
     event?.stopPropagation();
     
     try {
-      // Create calendar event from recommendation
+      console.log('✅ Accepting AI recommendation:', recommendation);
+      
+      // Use the service method to create calendar event
       await calendarService.createAIRecommendationEvent(userId, recommendation);
       
       // Reload calendar and recommendations
       await loadCalendarData();
       await loadAIRecommendations();
+      
+      alert('✅ AI recommendation added to your calendar!');
     } catch (error) {
-      console.error('Error accepting recommendation:', error);
-      alert('Failed to add recommendation to calendar.');
+      console.error('❌ Error accepting recommendation:', error);
+      alert('Failed to add recommendation to calendar:\n\n' + error.message);
     }
   }
 
@@ -262,31 +277,77 @@ export default function SmartMonthlyCalendar({ userId, questions = [], onAddEven
   }
 
   /**
-   * UPDATED: Spaced repetition click handler - opens modal instead of direct navigation
+   * 🔧 KEY FIX: Spaced repetition click handler
+   * 
+   * OLD (BROKEN) LINE 291:
+   * const dateStr = getDateString(parseInt(repetition.date?.split('-')[2]) || new Date().getDate());
+   * ❌ This was trying to parse just the day (e.g., "14") and then reconstruct the date
+   * ❌ This caused it to look at the wrong date in calendarData
+   * 
+   * NEW (FIXED):
+   * const dateStr = repetition.date;
+   * ✅ Use the full date string directly from the repetition (e.g., "2026-02-14")
+   * ✅ This matches the keys in calendarData correctly
    */
   function handleSpacedRepetitionClick(repetition, event) {
     event?.stopPropagation();
     
-    const dateStr = getDateString(parseInt(repetition.date?.split('-')[2]) || new Date().getDate());
+    // 🎯 FIX: Use the date directly from repetition
+    const dateStr = repetition.date; // e.g., "2026-02-14"
+    
+    // Get ALL repetitions for this date
     const allRepsForDay = calendarData[dateStr]?.repetitions || [];
+    
+    console.log('🔍 Opening review modal:', {
+      clickedRep: repetition,
+      dateStr,
+      totalRepsForDay: allRepsForDay.length,
+      allReps: allRepsForDay.map(r => ({ 
+        id: r.id, 
+        questionId: r.questionId, 
+        completed: r.completed,
+        topic: r.topic,
+        subtopic: r.subtopic
+      }))
+    });
+    
+    // Ensure we have the questions array
+    if (!questions || questions.length === 0) {
+      alert('Questions are still loading. Please wait a moment and try again.');
+      return;
+    }
+    
+    // Verify we have repetitions to show
+    if (allRepsForDay.length === 0) {
+      console.warn('⚠️ No repetitions found for date:', dateStr);
+      alert('No review sessions found for this day. This might be a data issue.');
+      return;
+    }
+    
+    console.log(`✅ Found ${allRepsForDay.length} repetition(s) for ${dateStr}`);
     
     setReviewModal({
       repetition,
-      allRepetitions: allRepsForDay
+      allRepetitions: allRepsForDay,  // 🎯 Pass ALL repetitions
+      dateStr
     });
   }
 
   /**
-   * NEW: Handle starting review from modal
+   * Handle starting review from modal
    */
   async function handleStartReview(reviewMode, questionIds) {
     try {
+      console.log('🎯 Starting review:', { reviewMode, questionIds });
+      
       const reviewQuestions = questions.filter(q => questionIds.includes(q.ID));
       
       if (reviewQuestions.length === 0) {
         alert('Questions not found in database.');
         return;
       }
+
+      console.log(`✅ Found ${reviewQuestions.length} questions for review`);
 
       quizStorage.clearQuizData();
       quizStorage.saveSelectedQuestions(reviewQuestions);
@@ -307,7 +368,7 @@ export default function SmartMonthlyCalendar({ userId, questions = [], onAddEven
   }
 
   /**
-   * UPDATED: Delete event with event type for better user confirmation
+   * 🔧 IMPROVED: Delete event with better error handling
    */
   async function handleDeleteEvent(eventId, eventType, event) {
     event.stopPropagation();
@@ -320,13 +381,26 @@ export default function SmartMonthlyCalendar({ userId, questions = [], onAddEven
     }
     
     try {
+      console.log('🗑️ Deleting event:', eventId);
       await calendarService.deleteEvent(eventId, true); // true = cascade delete
+      console.log('✅ Event deleted successfully');
       await loadCalendarData();
       setSelectedDate(null);
-      console.log('✅ Event deleted successfully');
+      alert('Event deleted successfully!');
     } catch (error) {
       console.error('❌ Error deleting event:', error);
-      alert('Failed to delete event: ' + error.message);
+      
+      // More detailed error message
+      let errorMsg = 'Failed to delete event. ';
+      if (error.message.includes('permission')) {
+        errorMsg += 'Please check that you have permission to delete this event.';
+      } else if (error.message.includes('not found')) {
+        errorMsg += 'Event not found. It may have already been deleted.';
+      } else {
+        errorMsg += error.message;
+      }
+      
+      alert(errorMsg);
     }
   }
 

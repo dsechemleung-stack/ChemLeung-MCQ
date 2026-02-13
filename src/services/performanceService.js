@@ -2,17 +2,18 @@ import { doc, setDoc, getDoc, getDocs, collection, query, where, writeBatch, ser
 import { db } from '../firebase/config';
 
 /**
- * Performance Service - Tracks user performance by topic/subtopic
- * Records quiz results and identifies weak areas for AI recommendations
+ * Performance Service - FIXED VERSION
+ * 
+ * KEY FIX:
+ * ✅ Generate AI recommendations for ALL weak areas (not just top 5)
+ * ✅ Better visibility of recommendations
+ * ✅ More aggressive weakness detection
  */
 
 export const performanceService = {
   
   /**
    * Record quiz results grouped by subtopic
-   * @param {string} userId - User ID
-   * @param {Array} questions - Questions from the quiz
-   * @param {Object} answers - User's answers {questionId: selectedOption}
    */
   async recordQuizResults(userId, questions, answers) {
     try {
@@ -93,6 +94,8 @@ export const performanceService = {
       
       await batch.commit();
       
+      console.log('✅ Performance recorded for', Object.keys(subtopicGroups).length, 'subtopics');
+      
       // After recording, trigger AI recommendation generation
       await this.generateAIRecommendations(userId);
       
@@ -143,43 +146,50 @@ export const performanceService = {
   },
   
   /**
-   * Generate AI recommendations based on performance data
-   * Identifies weak subtopics and creates study suggestions
+   * 🔧 FIX #2: Generate AI recommendations for ALL weak areas
+   * 
+   * CHANGES:
+   * - Lower accuracy thresholds to catch more weaknesses
+   * - Generate recommendations for ALL weak areas (not just top 5)
+   * - Better priority assignment
    */
   async generateAIRecommendations(userId) {
     try {
       const performance = await this.getAllPerformance(userId);
       
-      // Identify weak subtopics
+      console.log('🤖 Analyzing performance for', performance.length, 'subtopics');
+      
+      // 🔧 IMPROVED: More aggressive weakness detection
       const weakAreas = performance.filter(p => {
-        // Criteria for weakness:
-        // 1. Accuracy < 60% AND attempted at least 5 questions
-        // 2. OR accuracy < 70% AND attempted at least 10 questions
+        // Criteria for weakness (LOWERED THRESHOLDS):
+        // 1. Accuracy < 70% AND attempted at least 3 questions
+        // 2. OR accuracy < 80% AND attempted at least 5 questions
         // 3. OR declining trend in recent attempts
         
-        const hasLowAccuracy = p.accuracy < 0.6 && p.totalAttempts >= 5;
-        const hasModerateWeakness = p.accuracy < 0.7 && p.totalAttempts >= 10;
-        
-        // Check for declining trend
+        const hasLowAccuracy = p.accuracy < 0.7 && p.totalAttempts >= 3;
+        const hasModerateWeakness = p.accuracy < 0.8 && p.totalAttempts >= 5;
         const hasDecliningTrend = this.checkDecliningTrend(p.recentAttempts);
         
         return hasLowAccuracy || hasModerateWeakness || hasDecliningTrend;
       });
       
+      console.log('⚠️ Found', weakAreas.length, 'weak areas');
+      
       // Sort by priority (lowest accuracy first)
       weakAreas.sort((a, b) => a.accuracy - b.accuracy);
       
-      // Create recommendations for top 5 weak areas
-      const recommendations = weakAreas.slice(0, 5).map((area, index) => {
+      // 🔧 FIX: Create recommendations for ALL weak areas (not just top 5)
+      const recommendations = weakAreas.map((area, index) => {
         const priority = area.accuracy < 0.5 ? 'HIGH' : 
-                        area.accuracy < 0.6 ? 'MEDIUM' : 'LOW';
+                        area.accuracy < 0.65 ? 'MEDIUM' : 'LOW';
         
-        // Suggest date: tomorrow + index (spread recommendations)
+        // Suggest date: spread recommendations over next 2 weeks
         const suggestedDate = new Date();
-        suggestedDate.setDate(suggestedDate.getDate() + index + 1);
+        const daysOffset = Math.floor(index / 3) + 1; // Group 3 per day
+        suggestedDate.setDate(suggestedDate.getDate() + daysOffset);
         
-        const questionCount = priority === 'HIGH' ? 20 : 
-                              priority === 'MEDIUM' ? 15 : 10;
+        const questionCount = priority === 'HIGH' ? 25 : 
+                              priority === 'MEDIUM' ? 20 : 15;
         
         return {
           topic: area.topic,
@@ -190,10 +200,12 @@ export const performanceService = {
           questionCount,
           currentAccuracy: Math.round(area.accuracy * 100),
           attemptsCount: area.totalAttempts,
-          status: 'pending', // pending, accepted, dismissed
+          status: 'pending',
           createdAt: new Date().toISOString()
         };
       });
+      
+      console.log('📝 Generated', recommendations.length, 'AI recommendations');
       
       // Save recommendations to Firestore
       await this.saveRecommendations(userId, recommendations);
@@ -231,13 +243,13 @@ export const performanceService = {
     const accuracy = Math.round(area.accuracy * 100);
     
     if (area.accuracy < 0.5) {
-      return `Critical weakness (${accuracy}% accuracy). Needs immediate review.`;
-    } else if (area.accuracy < 0.6) {
-      return `Below target (${accuracy}% accuracy). Practice recommended.`;
-    } else if (area.accuracy < 0.7) {
-      return `Room for improvement (${accuracy}% accuracy). Additional practice suggested.`;
+      return `🚨 Critical weakness (${accuracy}% accuracy). Immediate review needed!`;
+    } else if (area.accuracy < 0.65) {
+      return `⚠️ Below target (${accuracy}% accuracy). Practice strongly recommended.`;
+    } else if (area.accuracy < 0.75) {
+      return `📚 Room for improvement (${accuracy}% accuracy). Additional practice suggested.`;
     } else {
-      return `Recent performance decline detected. Reinforce fundamentals.`;
+      return `📉 Recent performance decline detected. Reinforce fundamentals.`;
     }
   },
   
@@ -264,6 +276,8 @@ export const performanceService = {
       });
       
       await batch.commit();
+      
+      console.log('✅ Saved', recommendations.length, 'recommendations to Firestore');
     } catch (error) {
       console.error('Error saving recommendations:', error);
       throw error;
@@ -291,6 +305,8 @@ export const performanceService = {
       const priorityOrder = { 'HIGH': 1, 'MEDIUM': 2, 'LOW': 3 };
       recommendations.sort((a, b) => priorityOrder[a.priority] - priorityOrder[b.priority]);
       
+      console.log('📊 Retrieved', recommendations.length, 'pending recommendations');
+      
       return recommendations;
     } catch (error) {
       console.error('Error getting recommendations:', error);
@@ -308,6 +324,8 @@ export const performanceService = {
         status: 'accepted',
         acceptedAt: new Date().toISOString()
       }, { merge: true });
+      
+      console.log('✅ Recommendation accepted:', recommendationId);
     } catch (error) {
       console.error('Error accepting recommendation:', error);
       throw error;
@@ -324,6 +342,8 @@ export const performanceService = {
         status: 'dismissed',
         dismissedAt: new Date().toISOString()
       }, { merge: true });
+      
+      console.log('✅ Recommendation dismissed:', recommendationId);
     } catch (error) {
       console.error('Error dismissing recommendation:', error);
       throw error;
