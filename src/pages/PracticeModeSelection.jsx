@@ -570,7 +570,7 @@ export default function PracticeModeSelection({ questions }) {
     <div className="max-w-6xl mx-auto space-y-4">
       {/* Available Topics Info + Update Button */}
       {availableTopics.length > 0 ? (
-        <div className="sticky top-4 z-30 rounded-2xl p-4 border border-white/40 bg-white/55 backdrop-blur-xl shadow-lg">
+        <div className="md:sticky md:top-4 z-30 rounded-2xl p-4 border border-white/40 bg-white/55 backdrop-blur-xl shadow-lg">
           <div className="absolute inset-0 rounded-2xl opacity-70 bg-[radial-gradient(circle_at_15%_20%,rgba(99,102,241,0.22),transparent_60%),radial-gradient(circle_at_80%_30%,rgba(236,72,153,0.18),transparent_60%),radial-gradient(circle_at_50%_85%,rgba(34,211,238,0.16),transparent_55%)]" />
           <div className="relative flex justify-between items-start mb-2 gap-4">
             <div>

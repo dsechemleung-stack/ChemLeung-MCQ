@@ -4,6 +4,7 @@ import { useLanguage } from '../contexts/LanguageContext';
 import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
 import { Download, Share2, X, Trophy, Target, Clock, Calendar, CheckCircle, AlertCircle } from 'lucide-react';
+import { HK_TIME_ZONE } from '../utils/hkTime';
 
 export default function ShareableReport({ 
   questions, 
@@ -44,6 +45,7 @@ export default function ShareableReport({
   const formatDate = () => {
     const date = new Date();
     return date.toLocaleDateString(isEnglish ? 'en-GB' : 'zh-HK', {
+      timeZone: HK_TIME_ZONE,
       day: '2-digit',
       month: 'short',
       year: 'numeric'

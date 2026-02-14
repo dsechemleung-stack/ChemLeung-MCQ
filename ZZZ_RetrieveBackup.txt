@@ -27,3 +27,4 @@ backup 4: new SRS Systems
 ____
 backup 5: Mistake Notebook SRS + Firestore index workaround
 ____
+backup 6: Translation and UI

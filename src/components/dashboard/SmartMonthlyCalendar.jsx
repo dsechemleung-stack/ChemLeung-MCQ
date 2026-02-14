@@ -7,6 +7,7 @@ import { quizStorage } from '../../utils/quizStorage';
 import { motion, AnimatePresence } from 'framer-motion';
 import SpacedRepetitionModal from './SpacedRepetitionModal';
 import { useLanguage } from '../../contexts/LanguageContext';
+import { formatHKDateKey, getHKYearMonth, getHKWeekdayIndex, makeHKDate, parseHKDateKey, HK_TIME_ZONE } from '../../utils/hkTime';
 
 /**
  * SmartMonthlyCalendar - COMPLETE FIX
@@ -20,7 +21,10 @@ import { useLanguage } from '../../contexts/LanguageContext';
 export default function SmartMonthlyCalendar({ userId, questions = [], onAddEvent, embedded = false }) {
   const navigate = useNavigate();
   const { t, tf, isEnglish } = useLanguage();
-  const [currentDate, setCurrentDate] = useState(new Date());
+  const [currentDate, setCurrentDate] = useState(() => {
+    const { year, monthIndex } = getHKYearMonth(new Date());
+    return makeHKDate(year, monthIndex, 1);
+  });
   const [calendarData, setCalendarData] = useState({});
   const [loading, setLoading] = useState(true);
   const [selectedDate, setSelectedDate] = useState(null);
@@ -30,20 +34,22 @@ export default function SmartMonthlyCalendar({ userId, questions = [], onAddEven
   const [reviewModal, setReviewModal] = useState(null);
   const [showInfo, setShowInfo] = useState(false);
   
-  const year = currentDate.getFullYear();
-  const month = currentDate.getMonth();
+  const { year, month: monthIndex } = useMemo(() => {
+    const { year: y, monthIndex: m } = getHKYearMonth(currentDate);
+    return { year: y, month: m };
+  }, [currentDate]);
   
   useEffect(() => {
     loadCalendarData();
     loadAIRecommendations();
-  }, [userId, year, month]);
+  }, [userId, year, monthIndex]);
 
   async function loadCalendarData() {
     if (!userId) return;
     
     try {
       setLoading(true);
-      const data = await calendarService.getCalendarData(userId, year, month);
+      const data = await calendarService.getCalendarData(userId, year, monthIndex);
       console.log('📅 Calendar data loaded:', data);
       setCalendarData(data);
     } catch (error) {
@@ -80,10 +86,8 @@ export default function SmartMonthlyCalendar({ userId, questions = [], onAddEven
   };
 
   const calendarGrid = useMemo(() => {
-    const firstDay = new Date(year, month, 1);
-    const lastDay = new Date(year, month + 1, 0);
-    const startingDayOfWeek = firstDay.getDay();
-    const daysInMonth = lastDay.getDate();
+    const startingDayOfWeek = getHKWeekdayIndex(makeHKDate(year, monthIndex, 1));
+    const daysInMonth = new Date(Date.UTC(year, monthIndex + 1, 0)).getUTCDate();
     
     const grid = [];
     let week = [];
@@ -109,22 +113,22 @@ export default function SmartMonthlyCalendar({ userId, questions = [], onAddEven
     }
     
     return grid;
-  }, [year, month]);
+  }, [year, monthIndex]);
 
-  const monthName = new Date(year, month, 1).toLocaleDateString(isEnglish ? 'en-US' : 'zh-HK', { month: 'long', year: 'numeric' });
-  const today = new Date().toISOString().split('T')[0];
+  const monthName = makeHKDate(year, monthIndex, 1).toLocaleDateString(isEnglish ? 'en-US' : 'zh-HK', { timeZone: HK_TIME_ZONE, month: 'long', year: 'numeric' });
+  const today = formatHKDateKey(new Date());
 
   function prevMonth() {
-    setCurrentDate(new Date(year, month - 1, 1));
+    setCurrentDate(makeHKDate(year, monthIndex - 1, 1));
   }
 
   function nextMonth() {
-    setCurrentDate(new Date(year, month + 1, 1));
+    setCurrentDate(makeHKDate(year, monthIndex + 1, 1));
   }
 
   function getDateString(day) {
     if (!day) return null;
-    return new Date(year, month, day).toISOString().split('T')[0];
+    return formatHKDateKey(makeHKDate(year, monthIndex, day));
   }
 
   function getDayEvents(day) {
@@ -822,7 +826,8 @@ export default function SmartMonthlyCalendar({ userId, questions = [], onAddEven
             >
               <div className="sticky top-0 bg-white border-b p-4 flex justify-between items-center z-10">
                 <h3 className="text-lg font-black text-slate-800">
-                  {new Date(selectedDate).toLocaleDateString('en-US', { 
+                  {(parseHKDateKey(selectedDate) || new Date(selectedDate)).toLocaleDateString('en-US', { 
+                    timeZone: HK_TIME_ZONE,
                     weekday: 'long', 
                     month: 'long', 
                     day: 'numeric',
@@ -905,6 +910,7 @@ export default function SmartMonthlyCalendar({ userId, questions = [], onAddEven
                             <CalendarIcon size={12} />
                             <span>
                               {new Date(comp.completedAt).toLocaleString('en-GB', {
+                                timeZone: 'Asia/Hong_Kong',
                                 day: '2-digit',
                                 month: 'short',
                                 hour: '2-digit',

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Clock, Infinity, Sparkles, Heart, Settings, ChevronLeft, ChevronRight, Play } from 'lucide-react';
 import { useLanguage } from '../contexts/LanguageContext';
@@ -79,7 +79,25 @@ const getItemStyle = (position) => {
 
 export default function FisheyeCarousel({ onModeSelect, showHeader = true, compact = false }) {
   const [activeIndex, setActiveIndex] = useState(2);
+  const [isSmallScreen, setIsSmallScreen] = useState(false);
   const { t, tf } = useLanguage();
+
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 639px)');
+    const handleChange = (e) => setIsSmallScreen(e.matches);
+    setIsSmallScreen(mq.matches);
+    if (mq.addEventListener) mq.addEventListener('change', handleChange);
+    else mq.addListener(handleChange);
+    return () => {
+      if (mq.removeEventListener) mq.removeEventListener('change', handleChange);
+      else mq.removeListener(handleChange);
+    };
+  }, []);
+
+  const stepPx = isSmallScreen ? 220 : 280;
+  const cardWidth = isSmallScreen
+    ? (compact ? 'min(300px, 78vw)' : 'min(320px, 78vw)')
+    : (compact ? '300px' : '320px');
 
   const getCircularIndex = (index) => ((index % MODES.length) + MODES.length) % MODES.length;
 
@@ -119,22 +137,22 @@ export default function FisheyeCarousel({ onModeSelect, showHeader = true, compa
         <div className="relative">
           <button
             onClick={navigateLeft}
-            className="absolute left-0 top-1/2 -translate-y-1/2 z-20 w-14 h-14 bg-white shadow-xl rounded-full flex items-center justify-center hover:bg-slate-50 transition-all active:scale-95 border-2 border-slate-200"
+            className="hidden sm:flex absolute left-0 top-1/2 -translate-y-1/2 z-20 w-10 h-10 sm:w-14 sm:h-14 bg-white shadow-xl rounded-full items-center justify-center hover:bg-slate-50 transition-all active:scale-95 border-2 border-slate-200"
             aria-label={t('practiceModeCarousel.previousMode')}
           >
-            <ChevronLeft size={28} className="text-slate-700" strokeWidth={3} />
+            <ChevronLeft size={24} className="text-slate-700" strokeWidth={3} />
           </button>
 
           <button
             onClick={navigateRight}
-            className="absolute right-0 top-1/2 -translate-y-1/2 z-20 w-14 h-14 bg-white shadow-xl rounded-full flex items-center justify-center hover:bg-slate-50 transition-all active:scale-95 border-2 border-slate-200"
+            className="hidden sm:flex absolute right-0 top-1/2 -translate-y-1/2 z-20 w-10 h-10 sm:w-14 sm:h-14 bg-white shadow-xl rounded-full items-center justify-center hover:bg-slate-50 transition-all active:scale-95 border-2 border-slate-200"
             aria-label={t('practiceModeCarousel.nextMode')}
           >
-            <ChevronRight size={28} className="text-slate-700" strokeWidth={3} />
+            <ChevronRight size={24} className="text-slate-700" strokeWidth={3} />
           </button>
 
           <div className={`relative flex items-center justify-center overflow-visible ${compact ? 'h-[420px]' : 'h-[500px]'}`}>
-            <div className="relative w-full max-w-6xl mx-auto px-20">
+            <div className="relative w-full max-w-6xl mx-auto px-6 sm:px-20">
               <div className="flex items-center justify-center gap-4">
                 {MODES.map((mode, modeIndex) => {
                   const displayPosition = getDisplayPosition(modeIndex);
@@ -148,7 +166,7 @@ export default function FisheyeCarousel({ onModeSelect, showHeader = true, compa
                       className="absolute"
                       initial={false}
                       animate={{
-                        x: `${(displayPosition - 2) * 280}px`,
+                        x: `${(displayPosition - 2) * stepPx}px`,
                         scale: style.scale,
                         opacity: style.opacity,
                         zIndex: style.zIndex,
@@ -159,7 +177,7 @@ export default function FisheyeCarousel({ onModeSelect, showHeader = true, compa
                         damping: 30,
                         mass: 0.8,
                       }}
-                      style={{ width: compact ? '300px' : '320px' }}
+                      style={{ width: cardWidth }}
                     >
                       <motion.button
                         onClick={() => handleItemClick(modeIndex)}

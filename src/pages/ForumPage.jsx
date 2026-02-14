@@ -245,7 +245,7 @@ function PostDetail({ postId, currentUser, onBack }) {
     if (mins < 1) return t('forum.justNow');
     if (mins < 60) return tf('forum.timeAgoMinutes', { count: mins });
     if (mins < 1440) return tf('forum.timeAgoHours', { count: Math.floor(mins / 60) });
-    return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+    return d.toLocaleDateString('en-GB', { timeZone: 'Asia/Hong_Kong', day: '2-digit', month: 'short', year: 'numeric' });
   };
 
   const categoryColor = { general: 'bg-blue-100 text-blue-700', question: 'bg-amber-100 text-amber-700', announcement: 'bg-purple-100 text-purple-700' };

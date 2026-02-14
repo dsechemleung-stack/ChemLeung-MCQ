@@ -4,6 +4,7 @@
  */
 
 import { auth } from '../firebase/config';
+import { formatHKDateKey } from './hkTime';
 
 // Event Types
 export const EVENT_TYPES = {
@@ -95,7 +96,7 @@ export function calculateSpacedRepetitionDate(mistake) {
   const reviewDate = new Date(now);
   reviewDate.setDate(reviewDate.getDate() + daysToAdd);
   
-  return reviewDate.toISOString().split('T')[0];
+  return formatHKDateKey(reviewDate);
 }
 
 /**
@@ -121,7 +122,7 @@ export function generateExamPrepSuggestions(examDate, topic, subtopic = null) {
       suggestions.push({
         id: `prep_${topic}_${day}`,
         type: EVENT_TYPES.STUDY_SUGGESTION,
-        date: suggestionDate.toISOString().split('T')[0],
+        date: formatHKDateKey(suggestionDate),
         title: `${phase} - ${mcqCount} MCQs`,
         description: `Practice ${mcqCount} questions on ${topic}`,
         topic,
@@ -153,7 +154,7 @@ export function generateQuizPrepSuggestions(quizDate, topic, subtopic) {
     suggestions.push({
       id: `quiz_prep_${subtopic}_${day}`,
       type: EVENT_TYPES.STUDY_SUGGESTION,
-      date: suggestionDate.toISOString().split('T')[0],
+      date: formatHKDateKey(suggestionDate),
       title: `Quiz Prep - ${mcqCount} MCQs`,
       description: `Review ${mcqCount} questions on ${subtopic}`,
       topic,
@@ -331,8 +332,8 @@ export function getUpcomingEvents(days = 7) {
   future.setDate(future.getDate() + days);
   
   return getEventsForDateRange(
-    today.toISOString().split('T')[0],
-    future.toISOString().split('T')[0]
+    formatHKDateKey(today),
+    formatHKDateKey(future)
   ).sort((a, b) => new Date(a.date) - new Date(b.date));
 }
 
@@ -341,7 +342,7 @@ export function getUpcomingEvents(days = 7) {
  */
 export function addCompletedSession(date, sessionType, details = {}) {
   const calendarData = loadCalendarData();
-  const dateStr = date.toISOString().split('T')[0];
+  const dateStr = formatHKDateKey(date);
   
   if (!calendarData.completedSessions[dateStr]) {
     calendarData.completedSessions[dateStr] = [];
@@ -361,7 +362,7 @@ export function addCompletedSession(date, sessionType, details = {}) {
  */
 export function getCompletedSessions(date) {
   const calendarData = loadCalendarData();
-  const dateStr = date.toISOString().split('T')[0];
+  const dateStr = formatHKDateKey(date);
   return calendarData.completedSessions[dateStr] || [];
 }
 

@@ -9,6 +9,7 @@ import { quizCompletionService } from '../services/quizCompletionService';
 import { calendarService } from '../services/calendarService';
 import { rewardMCQCompletion, rewardQuizQuestionTokens } from '../services/rewardLogic';
 import ChemistryLoading from '../components/ChemistryLoading';
+import { formatHKDateKey } from '../utils/hkTime';
 
 /**
  * ResultsPage - OPTIMIZED VERSION with SRS Review Support
@@ -101,7 +102,7 @@ export default function ResultsPage() {
         // Get quiz metadata
         const quizMode = localStorage.getItem('quiz_mode') || 'practice';
         const eventId = localStorage.getItem('quiz_event_id');
-        const today = new Date().toISOString().split('T')[0];
+        const today = formatHKDateKey(new Date());
 
         // Prepare completion data for calendar
         const completionData = {

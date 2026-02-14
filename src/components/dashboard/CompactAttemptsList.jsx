@@ -11,6 +11,7 @@ export default function CompactAttemptsList({ attempts = [], onSelectAttempt = (
 
   const formatDate = (iso) =>
     new Date(iso).toLocaleDateString(isEnglish ? 'en-GB' : 'zh-HK', {
+      timeZone: 'Asia/Hong_Kong',
       day: '2-digit',
       month: 'short',
       hour: '2-digit',

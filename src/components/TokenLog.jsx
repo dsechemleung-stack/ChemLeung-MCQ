@@ -50,6 +50,7 @@ export default function TokenLog() {
     if (diffDays < 7) return tf('forum.timeAgoDaysShort', { count: diffDays });
     
     return date.toLocaleDateString(isEnglish ? 'en-GB' : 'zh-HK', { 
+      timeZone: 'Asia/Hong_Kong',
       day: '2-digit', 
       month: 'short', 
       year: 'numeric' 

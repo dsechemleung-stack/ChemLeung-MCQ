@@ -129,10 +129,10 @@ export default function Header() {
         <>
             <header className="sticky top-0 z-40 py-2">
                 <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-                    <div className="floating-island island-amber w-full md:w-fit md:mx-auto px-3 sm:px-3 py-1">
-                        <div className="floating-island-content flex justify-between items-center h-12 gap-4">
+                    <div className="floating-island island-amber w-full md:mx-auto px-3 sm:px-3 py-1">
+                        <div className="floating-island-content flex justify-between items-center h-12 gap-4 min-w-0">
                         {/* Logo and Brand */}
-                        <div className="flex-shrink-0 w-[180px] sm:w-[220px]">
+                        <div className="flex-shrink min-w-0">
                             <div className="flex items-center gap-3 cursor-pointer" onClick={() => handleNavigation('/dashboard')}>
                                 <div className="bg-lab-blue p-1.5 rounded-lg shadow-sm transition-transform active:scale-95">
                                     <Beaker className="text-white" size={24} />
@@ -229,7 +229,7 @@ export default function Header() {
 
                         {/* Mobile + Desktop User Menu */}
                         {currentUser && (
-                            <div className="flex items-center gap-2 flex-shrink-0 w-[180px] sm:w-[220px] justify-end">
+                            <div className="flex items-center gap-2 flex-shrink min-w-0 justify-end">
                                 <button
                                     onClick={() => setShowMobileNav(!showMobileNav)}
                                     className="md:hidden p-2 rounded-lg hover:bg-slate-100 transition-all active:scale-95"
@@ -311,8 +311,8 @@ export default function Header() {
                                 <div className="relative">
                                     <button
                                         onClick={() => setShowUserMenu(!showUserMenu)}
-                                        className="flex items-center gap-3 px-3 py-1.5 rounded-xl hover:bg-white/60 transition-all active:scale-[0.99] border-2 border-transparent hover:border-white/60 max-w-[280px]"
-                                        title={currentUser.displayName || t('common.anonymous')}
+                                        className="flex items-center gap-3 px-3 py-1.5 rounded-xl hover:bg-white/60 transition-all active:scale-[0.99] border-2 border-transparent hover:border-white/60 max-w-[240px] sm:max-w-[280px]"
+                                        title={currentUser.displayName || currentUser.email || t('common.anonymous')}
                                     >
                                         {/* Profile Icon - with equipped item and custom color */}
                                         <div 
@@ -322,10 +322,16 @@ export default function Header() {
                                             {displayIcon}
                                         </div>
                                         <div className="hidden sm:block text-left min-w-0">
-                                            <p className="text-sm font-bold text-slate-900 truncate max-w-[180px]">
+                                            <p
+                                                className="text-sm font-bold text-slate-900 truncate max-w-[140px] lg:max-w-[180px]"
+                                                title={currentUser.displayName || t('common.anonymous')}
+                                            >
                                                 {currentUser.displayName || t('common.anonymous')}
                                             </p>
-                                            <p className="text-xs text-slate-700 truncate max-w-[180px]">
+                                            <p
+                                                className="text-xs text-slate-700 truncate max-w-[140px] lg:max-w-[180px]"
+                                                title={currentUser.email || ''}
+                                            >
                                                 {currentUser.email}
                                             </p>
                                         </div>

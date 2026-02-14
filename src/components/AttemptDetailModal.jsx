@@ -24,6 +24,7 @@ export default function AttemptDetailModal({ attempt, onClose }) {
 
   const formatDate = (iso) => {
     return new Date(iso).toLocaleDateString('en-GB', {
+      timeZone: 'Asia/Hong_Kong',
       day: '2-digit', month: 'short', year: 'numeric',
       hour: '2-digit', minute: '2-digit'
     });

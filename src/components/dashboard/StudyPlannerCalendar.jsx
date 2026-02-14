@@ -15,6 +15,7 @@ import {
   scheduleMistakeReview,
   batchScheduleMistakeReviews,
 } from '../../utils/calendarEventManager';
+import { formatHKDateKey, getHKYearMonth, getHKWeekdayIndex, makeHKDate, HK_TIME_ZONE } from '../../utils/hkTime';
 
 /**
  * Enhanced Study Planner Calendar
@@ -29,7 +30,10 @@ export default function StudyPlannerCalendar({ mistakes = [] }) {
   const navigate = useNavigate();
   
   // State management
-  const [currentDate, setCurrentDate] = useState(new Date());
+  const [currentDate, setCurrentDate] = useState(() => {
+    const { year, monthIndex } = getHKYearMonth(new Date());
+    return makeHKDate(year, monthIndex, 1);
+  });
   const [events, setEvents] = useState([]);
   const [selectedDate, setSelectedDate] = useState(null);
   const [showAddEventModal, setShowAddEventModal] = useState(false);
@@ -67,33 +71,33 @@ export default function StudyPlannerCalendar({ mistakes = [] }) {
   };
   
   // Calendar calculations
-  const { year, month } = useMemo(() => ({
-    year: currentDate.getFullYear(),
-    month: currentDate.getMonth(),
-  }), [currentDate]);
+  const { year, month: monthIndex } = useMemo(() => {
+    const { year: y, monthIndex: m } = getHKYearMonth(currentDate);
+    return { year: y, month: m };
+  }, [currentDate]);
   
   const monthName = useMemo(() =>
-    currentDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
-  , [currentDate]);
+    makeHKDate(year, monthIndex, 1).toLocaleDateString('en-US', { timeZone: HK_TIME_ZONE, month: 'long', year: 'numeric' })
+  , [year, monthIndex]);
   
   const daysInMonth = useMemo(() => 
-    new Date(year, month + 1, 0).getDate()
-  , [year, month]);
+    new Date(Date.UTC(year, monthIndex + 1, 0)).getUTCDate()
+  , [year, monthIndex]);
   
   const firstDayOfMonth = useMemo(() => 
-    new Date(year, month, 1).getDay()
-  , [year, month]);
+    getHKWeekdayIndex(makeHKDate(year, monthIndex, 1))
+  , [year, monthIndex]);
   
   const calendarDays = useMemo(() => {
     const days = [];
-    const prevMonthDays = new Date(year, month, 0).getDate();
+    const prevMonthDays = new Date(Date.UTC(year, monthIndex, 0)).getUTCDate();
     
     // Previous month days
     for (let i = firstDayOfMonth - 1; i >= 0; i--) {
       days.push({
         day: prevMonthDays - i,
         isCurrentMonth: false,
-        date: new Date(year, month - 1, prevMonthDays - i),
+        date: makeHKDate(year, monthIndex - 1, prevMonthDays - i),
       });
     }
     
@@ -102,7 +106,7 @@ export default function StudyPlannerCalendar({ mistakes = [] }) {
       days.push({
         day,
         isCurrentMonth: true,
-        date: new Date(year, month, day),
+        date: makeHKDate(year, monthIndex, day),
       });
     }
     
@@ -112,12 +116,12 @@ export default function StudyPlannerCalendar({ mistakes = [] }) {
       days.push({
         day,
         isCurrentMonth: false,
-        date: new Date(year, month + 1, day),
+        date: makeHKDate(year, monthIndex + 1, day),
       });
     }
     
     return days;
-  }, [year, month, daysInMonth, firstDayOfMonth]);
+  }, [year, monthIndex, daysInMonth, firstDayOfMonth]);
   
   // Get events for each day
   const eventsMap = useMemo(() => {
@@ -131,20 +135,21 @@ export default function StudyPlannerCalendar({ mistakes = [] }) {
   
   // Navigation
   const goToPreviousMonth = () => {
-    setCurrentDate(new Date(year, month - 1, 1));
+    setCurrentDate(makeHKDate(year, monthIndex - 1, 1));
   };
   
   const goToNextMonth = () => {
-    setCurrentDate(new Date(year, month + 1, 1));
+    setCurrentDate(makeHKDate(year, monthIndex + 1, 1));
   };
   
   const goToToday = () => {
-    setCurrentDate(new Date());
+    const { year: y, monthIndex: m } = getHKYearMonth(new Date());
+    setCurrentDate(makeHKDate(y, m, 1));
   };
   
   // Event handling
   const handleDateClick = (dateObj) => {
-    const dateStr = dateObj.date.toISOString().split('T')[0];
+    const dateStr = formatHKDateKey(dateObj.date);
     const dayEvents = eventsMap[dateStr] || [];
     
     if (dayEvents.length > 0) {
@@ -170,11 +175,11 @@ export default function StudyPlannerCalendar({ mistakes = [] }) {
   };
   
   const isToday = (dateObj) => {
-    const today = new Date();
-    return dateObj.date.toDateString() === today.toDateString();
+    const todayKey = formatHKDateKey(new Date());
+    return formatHKDateKey(dateObj.date) === todayKey;
   };
   
-  const getTodayDateStr = () => new Date().toISOString().split('T')[0];
+  const getTodayDateStr = () => formatHKDateKey(new Date());
   
   return (
     <div className="bg-white rounded-2xl shadow-lg border-2 border-indigo-100 overflow-hidden">
@@ -249,7 +254,7 @@ export default function StudyPlannerCalendar({ mistakes = [] }) {
         {/* Calendar Days */}
         <div className="grid grid-cols-7 gap-2">
           {calendarDays.map((dateObj, idx) => {
-            const dateStr = dateObj.date.toISOString().split('T')[0];
+            const dateStr = formatHKDateKey(dateObj.date);
             const dayEvents = eventsMap[dateStr] || [];
             const hasEvents = dayEvents.length > 0;
             const isTodayDate = isToday(dateObj);
@@ -295,7 +300,7 @@ export default function StudyPlannerCalendar({ mistakes = [] }) {
                 
                 {/* Hover Tooltip */}
                 {hoveredDate === dateStr && dayEvents.length > 0 && (
-                  <div className="absolute left-0 top-full mt-2 z-50 bg-slate-900 text-white text-xs rounded-lg p-2 shadow-2xl min-w-[200px]">
+                  <div className="absolute left-0 top-full mt-2 z-50 bg-slate-900 text-white text-xs rounded-lg p-2 shadow-2xl w-max max-w-[min(260px,90vw)]">
                     <div className="font-bold mb-1">{tf('calendar.eventsCount', { count: dayEvents.length, plural: dayEvents.length > 1 ? 's' : '' })}</div>
                     {dayEvents.slice(0, 3).map((e, i) => (
                       <div key={i} className="truncate opacity-90">

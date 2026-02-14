@@ -68,6 +68,7 @@ export default function HistoryPage() {
 
   const formatDate = (iso) =>
     new Date(iso).toLocaleDateString(isEnglish ? 'en-GB' : 'zh-HK', {
+      timeZone: 'Asia/Hong_Kong',
       day: '2-digit', month: 'short', year: 'numeric',
       hour: '2-digit', minute: '2-digit',
     });
