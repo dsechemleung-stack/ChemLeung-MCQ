@@ -27,6 +27,37 @@ const REWARDS = {
   FORUM_POST: 2,        // Per helpful post (manual approval)
 };
 
+const MILLIONAIRE_REWARD_LADDER = [
+  1, 2, 3, 4, 5, 6, 7, 9, 11, 14, 17, 20, 23, 28, 35
+];
+
+export async function rewardMillionaire(userId, levelReached, attemptId = null) {
+  try {
+    const level = Number(levelReached || 0);
+    if (!userId || !Number.isFinite(level) || level <= 0) {
+      return { success: false, tokensAwarded: 0 };
+    }
+
+    const idx = Math.min(level, MILLIONAIRE_REWARD_LADDER.length) - 1;
+    const tokensAwarded = MILLIONAIRE_REWARD_LADDER[idx] || 0;
+    if (tokensAwarded <= 0) {
+      return { success: false, tokensAwarded: 0 };
+    }
+
+    const reason = `Millionaire Reward: Reached Q${level}`;
+    await awardTokens(userId, tokensAwarded, reason, {
+      category: 'millionaire',
+      levelReached: level,
+      attemptId
+    });
+
+    return { success: true, tokensAwarded };
+  } catch (error) {
+    console.error('Error rewarding Millionaire:', error);
+    return { success: false, tokensAwarded: 0 };
+  }
+}
+
 // ────────────────────────────────────────────────────────────────────────────
 // MCQ COMPLETION REWARDS
 // ────────────────────────────────────────────────────────────────────────────

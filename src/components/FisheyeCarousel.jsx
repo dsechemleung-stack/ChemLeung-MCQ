@@ -64,6 +64,18 @@ const MODES = [
     textColor: 'text-blue-700',
     iconColor: 'text-blue-600',
   },
+  {
+    id: 'millionaire',
+    titleKey: 'practiceModeCarousel.millionaireTitle',
+    subtitleKey: 'practiceModeCarousel.millionaireSubtitle',
+    descriptionKey: 'practiceModeCarousel.millionaireDesc',
+    icon: Sparkles,
+    gradient: 'from-amber-500 via-orange-500 to-rose-500',
+    bgColor: 'bg-amber-50',
+    borderColor: 'border-amber-200',
+    textColor: 'text-amber-700',
+    iconColor: 'text-amber-600',
+  },
 ];
 
 const getItemStyle = (position) => {

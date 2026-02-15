@@ -203,6 +203,9 @@ export default function PracticeModeSelection({ questions }) {
       case 'custom':
         handleModeSelect('custom', 10);
         break;
+      case 'millionaire':
+        navigate('/millionaire');
+        break;
       default:
         break;
     }

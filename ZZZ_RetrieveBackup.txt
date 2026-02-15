@@ -28,3 +28,6 @@ ____
 backup 5: Mistake Notebook SRS + Firestore index workaround
 ____
 backup 6: Translation and UI
+_____
+backup 7: Mobile phone UI optimization
+_____

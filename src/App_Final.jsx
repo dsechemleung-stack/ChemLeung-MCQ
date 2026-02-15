@@ -12,6 +12,7 @@ import TopicSelectionPage from './pages/TopicSelectionPage_Updated';
 import PracticeModeSelection from './pages/PracticeModeSelection';
 import QuizPage from './pages/QuizPage';
 import ResultsPage from './pages/ResultsPage_Updated_Fixed';
+import MillionaireQuiz from './pages/MillionaireQuiz';
 import LeaderboardPage from './pages/LeaderboardPage';
 import ProfilePage from './pages/ProfilePage';
 import HistoryPage from './pages/HistoryPage_Fixed';
@@ -29,9 +30,9 @@ function AppContent() {
   const location = useLocation();
   const { questions, loading, error } = useQuizData(SHEET_URL);
   const isNotebookRoute = location.pathname === '/notebook';
-  const noShellRoutes = new Set(['/dashboard', '/login', '/register']);
+  const noShellRoutes = new Set(['/dashboard', '/login', '/register', '/millionaire']);
   const useNoShell = noShellRoutes.has(location.pathname);
-  const hideHeaderRoutes = new Set(['/login', '/register']);
+  const hideHeaderRoutes = new Set(['/login', '/register', '/millionaire']);
   const showHeader = !hideHeaderRoutes.has(location.pathname);
 
   if (loading) {
@@ -98,6 +99,15 @@ function AppContent() {
             element={
               <PrivateRoute>
                 <QuizPage />
+              </PrivateRoute>
+            }
+          />
+
+          <Route
+            path="/millionaire"
+            element={
+              <PrivateRoute>
+                <MillionaireQuiz questions={questions} />
               </PrivateRoute>
             }
           />

@@ -1,0 +1,1146 @@
+
+import React, { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { doc, updateDoc, increment } from 'firebase/firestore';
+import { Sparkles, PhoneCall, BarChart3, Percent, X, Menu, Info, MoreHorizontal, LayoutGrid, HandCoins, ShieldCheck } from 'lucide-react';
+import { motion, useMotionValue, useSpring } from 'framer-motion';
+
+import { db } from '../firebase/config';
+import { useAuth } from '../contexts/AuthContext';
+import { useLanguage } from '../contexts/LanguageContext';
+import ChemistryLoading from '../components/ChemistryLoading';
+import { quizService } from '../services/quizService';
+import { fetchMillionaireQuestionsFiltered, MILLIONAIRE_LEVELS } from '../services/millionaireService';
+import MoneyLadder from '../components/millionaire/MoneyLadder';
+import GameOverModal from '../components/millionaire/GameOverModal';
+import ChemLeungModal from '../components/millionaire/ChemLeungModal';
+import ProbabilityModal from '../components/millionaire/ProbabilityModal';
+
+const LADDER_TOKENS = [1, 2, 3, 4, 5, 6, 7, 9, 11, 14, 17, 20, 23, 28, 35];
+
+function computeFailReward(levelReached) {
+  const lvl = Number(levelReached || 0);
+  if (!Number.isFinite(lvl) || lvl <= 0) return 0;
+  if (lvl < 5) return 0;
+  if (lvl >= 6 && lvl <= 10) return 5;
+  if (lvl >= 11 && lvl <= 15) return 14;
+  return 0;
+}
+
+export default function MillionaireQuiz({ questions: allQuestions = [] }) {
+  const navigate = useNavigate();
+  const { currentUser } = useAuth();
+  const { t, tf } = useLanguage();
+
+  const QUESTION_HEIGHT = 240;
+  const ANSWER_HEIGHT = 66;
+  const ANSWER_GAP_Y = 10;
+
+  const [loading, setLoading] = useState(true);
+  const [questions, setQuestions] = useState([]);
+  const [currentIndex, setCurrentIndex] = useState(0);
+
+  const [selectedOption, setSelectedOption] = useState(null);
+  const [lockedOption, setLockedOption] = useState(null);
+  const [answers, setAnswers] = useState({});
+  const [revealState, setRevealState] = useState(null); // null | 'correct' | 'wrong'
+  const [victoryOverlay, setVictoryOverlay] = useState(false);
+  const [milestoneOverlay, setMilestoneOverlay] = useState(null); // null | { level, tokens }
+  const [pendingBank, setPendingBank] = useState(0);
+
+  const [gameOver, setGameOver] = useState(false);
+  const [finalReward, setFinalReward] = useState(0);
+  const [finalReason, setFinalReason] = useState(null);
+  const [savingReward, setSavingReward] = useState(false);
+
+  const [lifeline5050Used, setLifeline5050Used] = useState(false);
+  const [lifelineChemUsed, setLifelineChemUsed] = useState(false);
+  const [lifelineProbUsed, setLifelineProbUsed] = useState(false);
+  const [hiddenOptions, setHiddenOptions] = useState(new Set());
+  const [showChemModal, setShowChemModal] = useState(false);
+  const [showProbModal, setShowProbModal] = useState(false);
+
+  const [ladderOpenMobile, setLadderOpenMobile] = useState(false);
+  const [showExitConfirm, setShowExitConfirm] = useState(false);
+  const [showPeriodicTable, setShowPeriodicTable] = useState(false);
+
+  const [shimmerOption, setShimmerOption] = useState(null);
+  const [lockInPending, setLockInPending] = useState(false);
+  const [expandModal, setExpandModal] = useState(null); // null | { title, text }
+
+  const questionTextRef = useRef(null);
+  const [questionFitFont, setQuestionFitFont] = useState(null);
+  const [questionFitLineHeight, setQuestionFitLineHeight] = useState(null);
+  const [questionOverflowing, setQuestionOverflowing] = useState(false);
+
+  const answerTextRefs = useRef({});
+  const [answerOverflowing, setAnswerOverflowing] = useState({});
+
+  const questionTextInnerRef = useRef(null);
+
+  const hoverCloseTimerRef = useRef(null);
+  const [hoverPopover, setHoverPopover] = useState(null); // null | { title, text, rect }
+
+  const finalizeOnceRef = useRef(false);
+
+  const getQuestionKey = (q, idx) => {
+    if (!q) return String(idx ?? 'unknown');
+    return String(q.ID ?? q.Id ?? q.id ?? q.DSEcode ?? idx ?? 'unknown');
+  };
+
+  const shuffle = (arr) => {
+    const a = Array.isArray(arr) ? [...arr] : [];
+    for (let i = a.length - 1; i > 0; i -= 1) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [a[i], a[j]] = [a[j], a[i]];
+    }
+    return a;
+  };
+
+  const currentQuestion = questions[currentIndex];
+  const level = currentIndex + 1;
+  const currentBank = useMemo(() => {
+    if (level <= 1) return 0;
+    return LADDER_TOKENS[level - 2] || 0;
+  }, [level]);
+
+  const ladderData = useMemo(() => {
+    return LADDER_TOKENS.map((amt, idx) => ({
+      level: idx + 1,
+      amount: amt,
+      safe: idx + 1 === 5 || idx + 1 === 10,
+    }));
+  }, []);
+
+  useEffect(() => {
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, []);
+
+  useEffect(() => {
+    try {
+      setLoading(true);
+      const picked = fetchMillionaireQuestionsFiltered(allQuestions, [], MILLIONAIRE_LEVELS);
+      setQuestions(picked);
+    } catch (e) {
+      console.error(e);
+      alert(e.message || t('millionaire.errors.startFailed'));
+      navigate('/');
+    } finally {
+      setLoading(false);
+    }
+  }, [allQuestions, navigate]);
+
+  const resetPerQuestionState = () => {
+    setSelectedOption(null);
+    setLockedOption(null);
+    setRevealState(null);
+    setHiddenOptions(new Set());
+    setPendingBank(0);
+  };
+
+  const awardTokensToUser = async (amount) => {
+    if (!currentUser?.uid || !amount || amount <= 0) return;
+    const userRef = doc(db, 'users', currentUser.uid);
+    await updateDoc(userRef, { tokens: increment(amount) });
+  };
+
+  const finalizeGame = async ({ reward, reason }) => {
+    if (finalizeOnceRef.current) return;
+    finalizeOnceRef.current = true;
+
+    setSavingReward(true);
+    try {
+      if (currentUser?.uid) {
+        const attemptedQuestions = questions.slice(0, Math.min(currentIndex + 1, questions.length));
+        const correctAnswers = attemptedQuestions.reduce((acc, q, idx) => {
+          const key = getQuestionKey(q, idx);
+          const chosen = String(answers[key] || '').toUpperCase();
+          const correct = String(q.CorrectOption || '').toUpperCase();
+          return acc + (chosen && chosen === correct ? 1 : 0);
+        }, 0);
+
+        const totalQuestions = attemptedQuestions.length;
+        const percentage = totalQuestions > 0 ? Math.round((correctAnswers / totalQuestions) * 100) : 0;
+        const topics = [...new Set(attemptedQuestions.map(q => q.Topic))].filter(Boolean);
+
+        await quizService.saveAttempt(currentUser.uid, {
+          score: percentage,
+          totalQuestions,
+          correctAnswers,
+          percentage,
+          topics,
+          timeSpent: null,
+          questionTimes: null,
+          answers,
+          questions: attemptedQuestions,
+          mode: 'millionaire',
+          millionaireLevelReached: level,
+          millionaireFinalReward: reward,
+          millionaireReason: reason,
+          millionaireWin: reason === 'win',
+        });
+      }
+
+      await awardTokensToUser(reward);
+    } catch (e) {
+      console.error(e);
+      alert(e.message || t('millionaire.errors.tokenUpdateFailed'));
+    } finally {
+      setFinalReward(reward);
+      setFinalReason(reason);
+      setSavingReward(false);
+      setGameOver(true);
+      setVictoryOverlay(false);
+      setMilestoneOverlay(null);
+      setLadderOpenMobile(false);
+      console.log('Millionaire finalize:', { reward, reason });
+    }
+  };
+
+  const handleSelect = (opt) => {
+    if (!currentQuestion || gameOver || savingReward) return;
+    if (lockedOption) return;
+    if (hiddenOptions.has(opt)) return;
+    setSelectedOption(opt);
+  };
+
+  const handleLockIn = async () => {
+    if (!currentQuestion || gameOver || savingReward) return;
+    if (!selectedOption) return;
+
+    const correct = String(currentQuestion.CorrectOption).toUpperCase();
+    const chosen = String(selectedOption).toUpperCase();
+    setLockedOption(chosen);
+    setShimmerOption(chosen);
+    setLockInPending(true);
+    setAnswers(prev => ({ ...prev, [getQuestionKey(currentQuestion, currentIndex)]: chosen }));
+
+    const isCorrect = chosen === correct;
+    setRevealState(isCorrect ? 'correct' : 'wrong');
+
+    window.setTimeout(async () => {
+      setLockInPending(false);
+      if (isCorrect) {
+        const passedLevel = level;
+        const bankAfter = LADDER_TOKENS[passedLevel - 1] || 0;
+        setPendingBank(bankAfter);
+
+        if (passedLevel === 5 || passedLevel === 10) {
+          setMilestoneOverlay({ level: passedLevel, tokens: bankAfter });
+          return;
+        }
+
+        if (passedLevel >= MILLIONAIRE_LEVELS) {
+          await finalizeGame({ reward: bankAfter, reason: 'win' });
+          return;
+        }
+
+        setVictoryOverlay(true);
+      } else {
+        const levelReached = level;
+        const reward = computeFailReward(levelReached);
+        await finalizeGame({ reward, reason: 'wrong_answer' });
+      }
+    }, 650);
+
+    window.setTimeout(() => {
+      setShimmerOption(null);
+    }, 750);
+  };
+
+  const handleContinue = () => {
+    if (gameOver || savingReward) return;
+    setVictoryOverlay(false);
+    resetPerQuestionState();
+    setCurrentIndex(i => i + 1);
+  };
+
+  const handleCashOut = async () => {
+    if (gameOver || savingReward) return;
+    const reward = pendingBank > 0 ? pendingBank : currentBank;
+    await finalizeGame({ reward, reason: 'cash_out' });
+  };
+
+  const handleMilestoneContinue = () => {
+    if (!milestoneOverlay) return;
+    setMilestoneOverlay(null);
+
+    const passedLevel = milestoneOverlay.level;
+    if (passedLevel >= MILLIONAIRE_LEVELS) {
+      finalizeGame({ reward: milestoneOverlay.tokens, reason: 'win' });
+      return;
+    }
+
+    resetPerQuestionState();
+    setCurrentIndex(i => i + 1);
+  };
+
+  const use5050 = () => {
+    if (!currentQuestion || lifeline5050Used || lockedOption || gameOver) return;
+    const correct = String(currentQuestion.CorrectOption).toUpperCase();
+    const wrongs = ['A', 'B', 'C', 'D'].filter(o => o !== correct);
+    const hide = shuffle(wrongs).slice(0, 2);
+    setHiddenOptions(new Set(hide));
+    setLifeline5050Used(true);
+  };
+
+  const useChemLeung = () => {
+    if (!currentQuestion || lifelineChemUsed || gameOver) return;
+    setShowChemModal(true);
+    setLifelineChemUsed(true);
+  };
+
+  const useProbability = () => {
+    if (!currentQuestion || lifelineProbUsed || gameOver) return;
+    setShowProbModal(true);
+    setLifelineProbUsed(true);
+  };
+
+  const optionText = useMemo(() => {
+    if (!currentQuestion) return {};
+    return {
+      A: currentQuestion.OptionA,
+      B: currentQuestion.OptionB,
+      C: currentQuestion.OptionC,
+      D: currentQuestion.OptionD,
+    };
+  }, [currentQuestion]);
+
+  const isWide = useMediaQuery('(min-width: 768px)');
+
+  const fullQuestionSetText = useMemo(() => {
+    if (!currentQuestion) return '';
+    const q = normalizeQuestionText(currentQuestion.Question, isWide);
+    const a = normalizeQuestionText(currentQuestion.OptionA, isWide);
+    const b = normalizeQuestionText(currentQuestion.OptionB, isWide);
+    const c = normalizeQuestionText(currentQuestion.OptionC, isWide);
+    const d = normalizeQuestionText(currentQuestion.OptionD, isWide);
+    return `${q}\n\nA. ${a}\nB. ${b}\nC. ${c}\nD. ${d}`;
+  }, [currentQuestion, isWide]);
+
+  const getFittedText = (raw, isQuestion = false) => {
+    const s = normalizeQuestionText(raw, isWide);
+    const len = s.length;
+
+    const clampNum = (n, min, max) => Math.min(max, Math.max(min, n));
+
+    let fontSize;
+    let lineHeight;
+    let letterSpacing;
+    if (isQuestion) {
+      const max = 22;
+      const min = 12;
+      const t = clampNum((len - 60) / 220, 0, 1);
+      fontSize = Math.round((max - (max - min) * t) * 10) / 10;
+
+      const lhMax = 1.22;
+      const lhMin = 1.04;
+      const ft = clampNum((max - fontSize) / (max - min), 0, 1);
+      lineHeight = Math.round((lhMax - (lhMax - lhMin) * ft) * 100) / 100;
+
+      const lsMax = 0.02;
+      const lsMin = -0.02;
+      const lt = clampNum((len - 120) / 220, 0, 1);
+      letterSpacing = `${Math.round((lsMax - (lsMax - lsMin) * lt) * 1000) / 1000}em`;
+    } else {
+      const max = 18;
+      const min = 13;
+      const t = clampNum((len - 28) / 92, 0, 1);
+      fontSize = Math.round((max - (max - min) * t) * 10) / 10;
+
+      const lhMax = 1.18;
+      const lhMin = 1.02;
+      const ft = clampNum((max - fontSize) / (max - min), 0, 1);
+      lineHeight = Math.round((lhMax - (lhMax - lhMin) * ft) * 100) / 100;
+
+      const lsMax = 0.01;
+      const lsMin = -0.02;
+      const lt = clampNum((len - 60) / 120, 0, 1);
+      letterSpacing = `${Math.round((lsMax - (lsMax - lsMin) * lt) * 1000) / 1000}em`;
+    }
+
+    const maxLength = isQuestion ? 280 : 140;
+    const needsTruncate = len > maxLength;
+    const text = needsTruncate ? s.slice(0, maxLength - 10) : s;
+
+    return { fullText: s, displayText: text, fontSize, lineHeight, letterSpacing, truncated: needsTruncate };
+  };
+
+  const correctOption = useMemo(() => {
+    return String(currentQuestion?.CorrectOption || '').toUpperCase();
+  }, [currentQuestion]);
+
+  useLayoutEffect(() => {
+    if (!currentQuestion) return;
+
+    const el = questionTextInnerRef.current;
+    if (!el) return;
+
+    const q = getFittedText(currentQuestion.Question, true);
+    const lhForFont = (font) => {
+      const maxF = 22;
+      const minF = 12;
+      const lhMax = 1.22;
+      const lhMin = 1.04;
+      const t = Math.min(1, Math.max(0, (maxF - font) / (maxF - minF)));
+      return Math.round((lhMax - (lhMax - lhMin) * t) * 100) / 100;
+    };
+    const minFont = 12;
+
+    setQuestionFitFont(null);
+    setQuestionFitLineHeight(null);
+    setQuestionOverflowing(false);
+
+    const raf = requestAnimationFrame(() => {
+      let font = 22;
+
+      for (let i = 0; i < 40; i += 1) {
+        el.style.fontSize = `${font}px`;
+        el.style.lineHeight = `${lhForFont(font)}`;
+        if (q.letterSpacing) el.style.letterSpacing = q.letterSpacing;
+        const overflows = el.scrollHeight > el.clientHeight || el.scrollWidth > el.clientWidth;
+        if (!overflows || font <= minFont) break;
+        font -= 1;
+      }
+
+      const stillOverflows = el.scrollHeight > el.clientHeight || el.scrollWidth > el.clientWidth;
+      setQuestionFitFont(font);
+      setQuestionFitLineHeight(lhForFont(font));
+      setQuestionOverflowing(stillOverflows);
+    });
+
+    return () => cancelAnimationFrame(raf);
+  }, [currentQuestion, isWide]);
+
+  useLayoutEffect(() => {
+    if (!currentQuestion) return;
+
+    const next = {};
+    (['A', 'B', 'C', 'D']).forEach((opt) => {
+      const el = answerTextRefs.current?.[opt];
+      if (!el) return;
+      next[opt] = el.scrollHeight > el.clientHeight || el.scrollWidth > el.clientWidth;
+    });
+    setAnswerOverflowing(next);
+  }, [currentQuestion, isWide]);
+
+  useEffect(() => {
+    return () => {
+      if (hoverCloseTimerRef.current) window.clearTimeout(hoverCloseTimerRef.current);
+    };
+  }, []);
+
+  const openHoverPopover = (e, title, text) => {
+    if (!text) return;
+    if (hoverCloseTimerRef.current) window.clearTimeout(hoverCloseTimerRef.current);
+
+    const rect = e?.currentTarget?.getBoundingClientRect?.();
+    if (!rect) return;
+    setHoverPopover({ title, text, rect });
+  };
+
+  const scheduleCloseHoverPopover = () => {
+    if (hoverCloseTimerRef.current) window.clearTimeout(hoverCloseTimerRef.current);
+    hoverCloseTimerRef.current = window.setTimeout(() => setHoverPopover(null), 120);
+  };
+
+  const getOptionClass = (opt) => {
+    const isHidden = hiddenOptions.has(opt);
+    if (isHidden) return 'opacity-0 pointer-events-none';
+
+    const base = 'm-hex m-hex--svg m-hex--idle m-hex--hover transition-all duration-300';
+    const isSelected = selectedOption === opt;
+    const isLocked = lockedOption === opt;
+
+    if (!lockedOption) {
+      return `${base} ${isSelected ? 'm-hex--selected' : ''}`;
+    }
+
+    if (lockInPending) {
+      if (isLocked) return `${base} m-hex--selected scale-[1.02] animate-pulse`;
+      return `${base} opacity-15 transition-opacity duration-700`;
+    }
+
+    if (revealState === 'correct') {
+      if (opt === correctOption) return `${base} m-hex--correct scale-[1.02]`;
+      if (isLocked) return `${base} m-hex--wrong`;
+      return `${base} m-hex--dim`;
+    }
+
+    if (revealState === 'wrong') {
+      if (isLocked) return `${base} m-hex--wrong scale-[1.02]`;
+      if (opt === correctOption) return `${base} m-hex--correct m-hex--flash`;
+      return `${base} m-hex--dim`;
+    }
+
+    return `${base}`;
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-[#020230]">
+        <ChemistryLoading />
+      </div>
+    );
+  }
+
+  if (!currentQuestion) return null;
+
+  const rewardIfClear = LADDER_TOKENS[level - 1] || 0;
+
+  return (
+    <div
+      className="h-screen overflow-hidden text-white"
+      style={{
+        background: 'radial-gradient(circle at top, #020230 0%, #000000 70%)'
+      }}
+    >
+      <div className="max-w-7xl mx-auto px-4 py-4 h-full flex flex-col">
+        <div className="flex items-center justify-between gap-3 mb-4 flex-none">
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 rounded-xl bg-amber-400/10 border border-amber-300/30 flex items-center justify-center">
+              <Sparkles className="text-amber-300" size={20} />
+            </div>
+            <div>
+              <div className="text-xs uppercase tracking-widest text-white/70">{t('millionaire.modeName')}</div>
+              <div className="text-xl font-black">Q{level} / {MILLIONAIRE_LEVELS}</div>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <div className="hidden sm:block text-right">
+              <div className="text-[11px] text-white/70">{t('millionaire.rewardIfClear')}</div>
+              <div className="text-lg font-black text-amber-300">
+                +{rewardIfClear} {t('millionaire.tokensUnit')}
+              </div>
+            </div>
+
+            <button
+              onClick={() => setShowExitConfirm(true)}
+              disabled={savingReward}
+              className="hidden sm:inline-flex m-quit w-10 h-10 items-center justify-center rounded-xl bg-red-600/25 border border-red-400/40 text-red-200 hover:bg-red-600/35 transition disabled:opacity-50"
+              title={t('millionaire.quit')}
+            >
+              <X size={18} />
+            </button>
+
+            <button
+              onClick={() => setLadderOpenMobile(true)}
+              className="sm:hidden px-3 py-2 rounded-xl bg-white/10 border border-white/10"
+            >
+              <Menu size={18} />
+            </button>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-[1fr_260px] gap-6 flex-1 min-h-0 pb-24">
+          {!victoryOverlay && (
+            <div className="lg:col-span-2 flex items-center justify-between gap-3 flex-none">
+              <div className="flex flex-wrap items-center gap-3">
+                <MagneticIconButton
+                  label={t('millionaire.lifelines.aiTips')}
+                  onClick={useProbability}
+                  disabled={lifelineProbUsed || savingReward || gameOver}
+                  used={lifelineProbUsed}
+                >
+                  <BarChart3 size={18} />
+                </MagneticIconButton>
+                <MagneticIconButton
+                  label={t('millionaire.lifelines.fiftyFifty')}
+                  onClick={use5050}
+                  disabled={lifeline5050Used || !!lockedOption || savingReward || gameOver}
+                  used={lifeline5050Used}
+                >
+                  <Percent size={18} />
+                </MagneticIconButton>
+                <MagneticIconButton
+                  label={t('millionaire.lifelines.chemLeung')}
+                  onClick={useChemLeung}
+                  disabled={lifelineChemUsed || savingReward || gameOver}
+                  used={lifelineChemUsed}
+                >
+                  <PhoneCall size={18} />
+                </MagneticIconButton>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setShowPeriodicTable(true)}
+                className="m-tool-btn m-tool-btn--pt"
+                title={t('millionaire.periodicTable')}
+                aria-label={t('millionaire.periodicTable')}
+              >
+                <span className="m-tool-btn__icon" aria-hidden="true">
+                  <LayoutGrid size={20} />
+                </span>
+                <span className="m-tool-btn__label">{t('millionaire.periodicTable')}</span>
+              </button>
+            </div>
+          )}
+          {/* Left: Question + Answers */}
+          <div className="min-h-0 h-full flex flex-col gap-4">
+            <div className="flex-none flex items-center justify-between">
+              <div className="text-xs uppercase tracking-widest text-white/60">{t('millionaire.questionLabel')}</div>
+              <div className="text-sm font-black text-white/90">Q{level}/{MILLIONAIRE_LEVELS}</div>
+            </div>
+
+            {/* Question Hex (taller to fit longer chemistry stems) */}
+            <div className="flex-none w-full m-hex-wrap" style={{ ['--m-hex-span']: '90%' }}>
+              <div className="m-hex-extend" />
+              <div
+                className="m-hex m-hex--svg m-hex--idle px-0 shadow-2xl flex items-center justify-center"
+                style={{
+                  width: 'var(--m-hex-span)',
+                  marginLeft: 'auto',
+                  marginRight: 'auto',
+                  height: `${QUESTION_HEIGHT}px`,
+                  minHeight: `${QUESTION_HEIGHT}px`,
+                  maxHeight: `${QUESTION_HEIGHT}px`
+                }}
+              >
+                <HexNeonOutline />
+                {(() => {
+                  const q = getFittedText(currentQuestion.Question, true);
+                  return (
+                    <div
+                      ref={questionTextRef}
+                      className="m-hex-content text-center font-black leading-relaxed flex items-center justify-center"
+                      style={{
+                        fontSize: questionFitFont ?? q.fontSize,
+                        lineHeight: questionFitLineHeight ?? q.lineHeight,
+                        letterSpacing: q.letterSpacing,
+                        height: '100%',
+                        ['--m-safe-pad']: '8%'
+                      }}
+                    >
+                      <span
+                        ref={questionTextInnerRef}
+                        className="block overflow-hidden"
+                        style={{ maxHeight: `${QUESTION_HEIGHT - 14}px` }}
+                      >
+                        {q.displayText}
+                      </span>
+                      {(questionOverflowing || q.truncated) && (
+                        <button
+                          type="button"
+                          className="m-ellipsis-btn"
+                          onClick={() => setExpandModal({ title: `Question Set (Q${level})`, text: fullQuestionSetText })}
+                          title="View full question set"
+                          aria-label="View full question set"
+                        >
+                          <MoreHorizontal size={18} />
+                        </button>
+                      )}
+                    </div>
+                  );
+                })()}
+              </div>
+            </div>
+
+            {/* Middle Expand Area: Answers OR Decision Card */}
+            <div className="flex-1 min-h-0 flex flex-col justify-center">
+              {!victoryOverlay ? (
+                <div
+                  className="grid grid-cols-1 md:grid-cols-2 gap-x-10 gap-y-[10px] flex-1 min-h-0 lg:content-center"
+                  style={{
+                    width: '92%',
+                    marginLeft: 'auto',
+                    marginRight: 'auto',
+                    gridTemplateRows: `${ANSWER_HEIGHT}px ${ANSWER_HEIGHT}px`,
+                    gridAutoRows: `${ANSWER_HEIGHT}px`,
+                    maxHeight: `${(ANSWER_HEIGHT * 2) + ANSWER_GAP_Y}px`
+                  }}
+                >
+                  {(['A', 'B', 'C', 'D']).map((opt) => (
+                    <div key={opt} className="m-hex-wrap" style={{ ['--m-hex-span']: '100%' }}>
+                      <div className="m-hex-extend" />
+                      <MagneticMotionButton
+                        onClick={() => handleSelect(opt)}
+                        disabled={savingReward || gameOver || hiddenOptions.has(opt)}
+                        className={`px-0 text-left shadow-xl ${getOptionClass(opt)} hover:scale-[1.02] w-full flex items-center`}
+                        style={{
+                          height: `${ANSWER_HEIGHT}px`,
+                          minHeight: `${ANSWER_HEIGHT}px`,
+                          maxHeight: `${ANSWER_HEIGHT}px`
+                        }}
+                      >
+                        {shimmerOption === opt && <span className="m-shimmer" />}
+                        <HexNeonOutline />
+                        <span className="m-answer-connectors" />
+                        {(() => {
+                          const a = getFittedText(optionText[opt] || '', false);
+                          return (
+                            <div className="m-hex-content flex items-center gap-3 w-full">
+                              <div className="font-black text-base sm:text-lg">
+                                <span className="m-opt-label">{opt}:</span>
+                              </div>
+                              <div
+                                className="font-bold leading-relaxed text-white"
+                                style={{ fontSize: a.fontSize, lineHeight: a.lineHeight, letterSpacing: a.letterSpacing }}
+                              >
+                                <span
+                                  ref={(node) => {
+                                    if (node) answerTextRefs.current[opt] = node;
+                                  }}
+                                  className="block overflow-hidden"
+                                  style={{ maxHeight: `${ANSWER_HEIGHT - 10}px` }}
+                                >
+                                {a.displayText}
+                                </span>
+                                {(answerOverflowing?.[opt] || a.truncated) && (
+                                  <button
+                                    type="button"
+                                    className="m-ellipsis-btn"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setExpandModal({ title: `Question Set (Q${level})`, text: fullQuestionSetText });
+                                    }}
+                                    title="View full question set"
+                                    aria-label="View full question set"
+                                  >
+                                    <MoreHorizontal size={18} />
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })()}
+                      </MagneticMotionButton>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="flex-1 min-h-0" />
+              )}
+            </div>
+
+            {/* Bottom: Lock In + Bank (anchored above dock) */}
+            <div className="flex-none">
+              {!victoryOverlay && (
+                <button
+                  onClick={handleLockIn}
+                  disabled={!selectedOption || !!lockedOption || savingReward || gameOver}
+                  className="w-full m-lockin-btn"
+                >
+                  {t('millionaire.lockIn')}
+                </button>
+              )}
+
+              <div className="text-sm text-white/70 mt-3">
+                {t('millionaire.currentBank')}: <span className="font-black text-amber-300">{currentBank}</span>{' '}
+                {t('millionaire.tokensUnit')}
+              </div>
+            </div>
+          </div>
+
+          {/* Right: Ladder (desktop) */}
+          <div className="hidden lg:block min-h-0 h-full">
+            <MoneyLadder ladder={ladderData} currentLevel={level} />
+          </div>
+        </div>
+      </div>
+
+      {/* Floating Pill Dock */}
+      <div className="fixed left-1/2 -translate-x-1/2 bottom-4 z-30">
+        <div className="bg-black/50 backdrop-blur-xl border border-white/10 rounded-full shadow-2xl px-3 py-2 flex items-center gap-2 sm:hidden">
+          <DockIconButton
+            label={t('millionaire.quit')}
+            onClick={() => setShowExitConfirm(true)}
+            disabled={savingReward}
+            used={false}
+            variant="danger"
+          >
+            <X size={18} />
+          </DockIconButton>
+        </div>
+      </div>
+
+      {/* Exit Warning */}
+      {showExitConfirm && (
+        <div className="m-dec-overlay">
+          <div className="m-dec-lines" aria-hidden="true">
+            <span className="m-dec-line m-dec-line--left" />
+            <span className="m-dec-line m-dec-line--right" />
+          </div>
+          <div className="m-dec-hex-frame">
+            <div className="m-dec-inner m-dec-inner--normalcase">
+              <div className="m-dec-kicker">{t('millionaire.overlays.finalDecision')}</div>
+              <div className="m-dec-title">{t('millionaire.overlays.confirmQuit')}</div>
+              <div className="m-dec-body">
+                {t('millionaire.overlays.cashOutToSavePrefix')}
+                <span className="m-dec-value"> {currentBank} {t('millionaire.tokensUnit')}</span>
+                {t('millionaire.overlays.cashOutToSaveSuffix')}
+                {' '}
+                {t('millionaire.overlays.orStayContinue')}
+              </div>
+              <div className="m-dec-actions">
+                <button
+                  onClick={async () => {
+                    setShowExitConfirm(false);
+                    await handleCashOut();
+                  }}
+                  className="m-dec-hex-btn m-dec-hex-btn--cash"
+                >
+                  <HandCoins size={18} />
+                  {t('millionaire.overlays.cashOut')}
+                </button>
+                <button
+                  onClick={() => setShowExitConfirm(false)}
+                  className="m-dec-hex-btn m-dec-hex-btn--stay"
+                >
+                  <ShieldCheck size={18} />
+                  {t('millionaire.overlays.stay')}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {hoverPopover && (
+        <div
+          className="fixed z-[60] w-[320px] max-w-[85vw] m-glass border border-white/15 rounded-2xl shadow-2xl p-4"
+          style={{
+            left: Math.min(Math.max(12, hoverPopover.rect.left), window.innerWidth - 332),
+            top: Math.min(hoverPopover.rect.bottom + 10, window.innerHeight - 220)
+          }}
+          onMouseEnter={() => {
+            if (hoverCloseTimerRef.current) window.clearTimeout(hoverCloseTimerRef.current);
+          }}
+          onMouseLeave={scheduleCloseHoverPopover}
+        >
+          <div className="text-[11px] uppercase tracking-widest text-white/60">{hoverPopover.title}</div>
+          <div className="mt-2 text-sm font-semibold text-white leading-relaxed whitespace-pre-wrap">{hoverPopover.text}</div>
+        </div>
+      )}
+
+      {/* Ladder Drawer (mobile/tablet) */}
+      {ladderOpenMobile && (
+        <div className="fixed inset-0 z-40">
+          <div className="absolute inset-0 bg-black/70" onClick={() => setLadderOpenMobile(false)} />
+          <div className="absolute right-0 top-0 h-full w-[85%] max-w-sm p-4">
+            <div className="h-full">
+              <MoneyLadder ladder={ladderData} currentLevel={level} />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Milestone Overlay */}
+      {milestoneOverlay && (
+        <div className="m-dec-overlay">
+          <div className="m-dec-lines" aria-hidden="true">
+            <span className="m-dec-line m-dec-line--left" />
+            <span className="m-dec-line m-dec-line--right" />
+          </div>
+          <div className="m-dec-hex-frame">
+            <div className="m-dec-inner m-dec-inner--normalcase">
+              <div className="m-dec-kicker">{t('millionaire.overlays.safeHaven')}</div>
+              <div className="m-dec-title">{t('millionaire.overlays.safetyNetReached')}</div>
+              <div className="m-dec-body">
+                {t('millionaire.overlays.guaranteedPrefix')}
+                <span className="m-dec-value"> {milestoneOverlay.tokens} {t('millionaire.tokensUnit')}</span>
+                {' '}
+                {t('millionaire.overlays.guaranteedSuffix')}
+              </div>
+              <div className="m-dec-body m-dec-body--muted">
+                {tf('millionaire.overlays.safeHavenAt', { level: milestoneOverlay.level })}
+              </div>
+              <div className="m-dec-actions">
+                <button
+                  onClick={handleMilestoneContinue}
+                  disabled={savingReward}
+                  className="m-dec-hex-btn m-dec-hex-btn--next"
+                >
+                  {t('millionaire.overlays.continue')}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Decision Overlay (Correct) */}
+      {victoryOverlay && (
+        <div className="m-dec-overlay">
+          <div className="m-dec-lines" aria-hidden="true">
+            <span className="m-dec-line m-dec-line--left" />
+            <span className="m-dec-line m-dec-line--right" />
+          </div>
+          <div className="m-dec-hex-frame">
+            <div className="m-dec-inner">
+              <div className="m-dec-kicker">{t('millionaire.overlays.decision')}</div>
+              <div className="m-dec-title m-dec-title--correct">{t('millionaire.overlays.correct')}</div>
+              <div className="m-dec-body">
+                {tf('millionaire.overlays.clearedCurrentReward', { level })}
+                <span className="m-dec-value"> {pendingBank} {t('millionaire.tokensUnit')}</span>
+              </div>
+              <div className="m-dec-actions">
+                <button
+                  onClick={handleCashOut}
+                  disabled={savingReward}
+                  className="m-dec-hex-btn m-dec-hex-btn--cash"
+                >
+                  <HandCoins size={18} />
+                  {t('millionaire.overlays.cashOut')}
+                </button>
+                <button
+                  onClick={handleContinue}
+                  disabled={savingReward}
+                  className="m-dec-hex-btn m-dec-hex-btn--next"
+                >
+                  {t('millionaire.overlays.nextQuestion')}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Lifeline Modals */}
+      {showChemModal && (
+        <ChemLeungModal
+          explanation={currentQuestion.Explanation}
+          onClose={() => setShowChemModal(false)}
+        />
+      )}
+      {showProbModal && (
+        <ProbabilityModal
+          correctOption={correctOption}
+          options={['A', 'B', 'C', 'D']}
+          onClose={() => setShowProbModal(false)}
+        />
+      )}
+
+      {showPeriodicTable && (
+        <div
+          className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4"
+          onClick={() => setShowPeriodicTable(false)}
+        >
+          <div
+            className="bg-white rounded-2xl shadow-2xl max-w-6xl w-full max-h-[90vh] overflow-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="sticky top-0 bg-white border-b p-4 flex justify-between items-center">
+              <h3 className="text-xl font-bold text-slate-800">{t('millionaire.periodicTableOfElements')}</h3>
+              <button
+                onClick={() => setShowPeriodicTable(false)}
+                className="text-slate-400 hover:text-slate-600 p-2 rounded-full hover:bg-slate-100"
+              >
+                <X size={24} />
+              </button>
+            </div>
+            <div className="p-4">
+              <img
+                src="https://upload.wikimedia.org/wikipedia/commons/2/2e/Simple_Periodic_Table_Chart-en.svg"
+                alt={t('millionaire.periodicTableAlt')}
+                className="w-full h-auto"
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Game Over */}
+      {gameOver && (
+        <GameOverModal
+          winAmount={String(finalReward)}
+          questionsAnswered={level}
+          fallbackReward={computeFailReward(level)}
+          reason={finalReason}
+          onPlayAgain={() => window.location.reload()}
+          onExit={() => navigate('/')}
+        />
+      )}
+
+      {expandModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-0 sm:p-4">
+          <div className="absolute inset-0 bg-black/70" onClick={() => setExpandModal(null)} />
+          <div className="relative w-full h-full sm:h-auto sm:max-h-[85vh] sm:max-w-3xl m-glass sm:rounded-3xl p-6 sm:p-8 shadow-2xl overflow-y-auto">
+            <div className="text-xs uppercase tracking-widest text-white/60">{t('millionaire.details')}</div>
+            <div className="text-2xl font-black mt-2">{expandModal.title}</div>
+            <div className="text-white/85 mt-4 leading-relaxed whitespace-pre-line">
+              {expandModal.text}
+            </div>
+            <div className="mt-6">
+              <button
+                onClick={() => setExpandModal(null)}
+                className="px-6 py-4 rounded-2xl font-black bg-blue-600 hover:bg-blue-500 transition"
+              >
+                {t('millionaire.close')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function useMediaQuery(query) {
+  const [matches, setMatches] = useState(() => {
+    if (typeof window === 'undefined') return true;
+    return window.matchMedia(query).matches;
+  });
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const mql = window.matchMedia(query);
+    const onChange = () => setMatches(mql.matches);
+    onChange();
+    mql.addEventListener('change', onChange);
+    return () => mql.removeEventListener('change', onChange);
+  }, [query]);
+
+  return matches;
+}
+
+function HexNeonOutline() {
+  const filterId = useId();
+  return (
+    <svg className="m-hex-outline" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+      <defs>
+        <filter id={filterId} x="-30%" y="-30%" width="160%" height="160%" colorInterpolationFilters="sRGB">
+          <feGaussianBlur in="SourceGraphic" stdDeviation="1.6" result="blur" />
+          <feMerge>
+            <feMergeNode in="blur" />
+            <feMergeNode in="SourceGraphic" />
+          </feMerge>
+        </filter>
+      </defs>
+      <polygon
+        className="m-hex-glow"
+        points="16,0 84,0 100,50 84,100 16,100 0,50"
+        fill="none"
+        strokeWidth="2.6"
+        filter={`url(#${filterId})`}
+        opacity="0.95"
+      />
+      <polygon
+        className="m-hex-core"
+        points="16,0 84,0 100,50 84,100 16,100 0,50"
+        fill="none"
+        strokeWidth="1.2"
+        opacity="0.98"
+      />
+    </svg>
+  );
+}
+
+function normalizeQuestionText(raw, preserveBreaks) {
+  const s = String(raw || '');
+  if (!s) return '';
+  if (preserveBreaks) {
+    return s.replace(/<br\s*\/?>/gi, '\n');
+  }
+  return s.replace(/<br\s*\/?>/gi, ' ');
+}
+
+function DockIconButton({ label, onClick, disabled, used, children, variant }) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      title={label}
+      className={`relative w-11 h-11 rounded-full border flex items-center justify-center transition ${
+        used
+          ? 'bg-white/5 border-white/10 text-white/35'
+          : variant === 'danger'
+            ? 'bg-red-600/25 border-red-400/40 hover:bg-red-600/35 text-red-200'
+            : 'bg-white/10 border-white/10 hover:bg-white/15 text-white'
+      } ${disabled ? 'opacity-60 cursor-not-allowed' : ''}`}
+    >
+      {children}
+      {used && (
+        <span className="pointer-events-none absolute inset-0">
+          <span className="absolute left-1/2 top-1/2 w-12 h-[2px] bg-red-500 -translate-x-1/2 -translate-y-1/2 rotate-[-35deg] rounded" />
+        </span>
+      )}
+    </button>
+  );
+}
+
+function useMousePosition() {
+  const [pos, setPos] = useState({ x: 0, y: 0 });
+  useEffect(() => {
+    const onMove = (e) => setPos({ x: e.clientX, y: e.clientY });
+    window.addEventListener('mousemove', onMove, { passive: true });
+    return () => window.removeEventListener('mousemove', onMove);
+  }, []);
+  return pos;
+}
+
+function MagneticMotionButton({ className, disabled, onClick, children, style }) {
+  const ref = useRef(null);
+  const mouse = useMousePosition();
+  const x = useMotionValue(0);
+  const y = useMotionValue(0);
+  const sx = useSpring(x, { stiffness: 420, damping: 26, mass: 0.55 });
+  const sy = useSpring(y, { stiffness: 420, damping: 26, mass: 0.55 });
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || disabled) {
+      x.set(0);
+      y.set(0);
+      return;
+    }
+
+    const rect = el.getBoundingClientRect();
+    const cx = rect.left + rect.width / 2;
+    const cy = rect.top + rect.height / 2;
+
+    const dx = mouse.x - cx;
+    const dy = mouse.y - cy;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    const radius = 40;
+    const strength = 12;
+
+    if (dist < radius) {
+      const pull = (1 - dist / radius) * strength;
+      x.set((dx / (dist || 1)) * pull);
+      y.set((dy / (dist || 1)) * pull);
+    } else {
+      x.set(0);
+      y.set(0);
+    }
+  }, [mouse.x, mouse.y, disabled, x, y]);
+
+  return (
+    <motion.button
+      ref={ref}
+      style={{ ...(style || {}), x: sx, y: sy }}
+      onClick={onClick}
+      disabled={disabled}
+      className={`${className} ${disabled ? 'opacity-60 cursor-not-allowed' : ''}`}
+    >
+      {children}
+    </motion.button>
+  );
+}
+
+function MagneticIconButton({ label, onClick, disabled, used, children }) {
+  return (
+    <MagneticMotionButton
+      onClick={onClick}
+      disabled={disabled}
+      className={`m-lifeline-btn relative flex items-center gap-2 px-4 py-3 rounded-2xl m-glass shadow-xl transition ${
+        used ? 'm-lifeline-btn--used text-white/35' : 'text-white'
+      }`}
+    >
+      <span className="m-lifeline-icon flex items-center justify-center w-8 h-8 rounded-xl bg-white/5 border border-white/10">
+        {children}
+      </span>
+      <span className="text-sm font-black">{label}</span>
+      {used && (
+        <span className="pointer-events-none absolute inset-0">
+          <span className="absolute left-1/2 top-1/2 w-[110%] h-[2px] bg-red-500/80 -translate-x-1/2 -translate-y-1/2 rotate-[-12deg] rounded" />
+        </span>
+      )}
+    </MagneticMotionButton>
+  );
+}

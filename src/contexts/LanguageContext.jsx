@@ -189,10 +189,97 @@ const translations = {
       aiDailyDesc: "AI-optimized learning path",
       mistakeReviewTitle: "Mistake Review",
       mistakeReviewSubtitle: "Master your weaknesses",
-      mistakeReviewDesc: "Practice until perfect",
-      customTitle: "Custom Session",
-      customSubtitle: "Your rules",
-      customDesc: "Choose topics & settings",
+
+      millionaireTitle: "Millionaire Mode",
+      millionaireSubtitle: "15 questions ladder",
+      millionaireDesc: "One wrong answer ends the run. Earn tokens by reaching higher questions.",
+    },
+
+    millionaire: {
+      modeName: "Millionaire",
+      questionLabel: "Question",
+      tokensUnit: "tokens",
+      tokenLadder: "Token Ladder",
+      safetyNet: "Safety Net",
+      cleared: "Cleared",
+      now: "Now",
+      amountTokens: "{count} tokens",
+
+      lifelines: {
+        aiTips: "AI Tips",
+        fiftyFifty: "50:50",
+        chemLeung: "ChemLeung",
+      },
+
+      rewardIfClear: "Reward if you clear",
+      currentBank: "Current Bank",
+      lockIn: "Lock In",
+      quit: "Quit",
+
+      periodicTableOfElements: "Periodic Table of Elements",
+      periodicTable: "Periodic Table",
+      periodicTableAlt: "Periodic Table",
+      close: "Close",
+      details: "Details",
+
+      overlays: {
+        finalDecision: "Final decision",
+        confirmQuit: "Confirm quit",
+        cashOutToSavePrefix: "Cash out to save your current bank",
+        cashOutToSaveSuffix: ",",
+        orStayContinue: "or stay and continue the round.",
+        cashOutToSave: "Cash out to save your current bank {amount} {unit},",
+        cashOut: "Cash out",
+        stay: "Stay",
+
+        safeHaven: "Safe haven",
+        safetyNetReached: "Safety net reached",
+        guaranteedPrefix: "Your",
+        guaranteedSuffix: "are now guaranteed.",
+        guaranteed: "Your {amount} {unit} are now guaranteed.",
+        safeHavenAt: "Safe haven: Q{level}",
+        continue: "Continue",
+
+        decision: "Decision",
+        correct: "Correct!",
+        clearedCurrentReward: "You cleared Q{level}. Current reward:",
+        nextQuestion: "Next question",
+      },
+
+      gameOver: {
+        finalResult: "Final result",
+        gameOver: "Game over",
+        finalRewardAria: "Final reward",
+        cashOutConfirmed: "Cash out confirmed",
+        perfectRun: "Perfect run",
+        betterLuck: "Better luck next time",
+        questionsAnswered: "Questions answered",
+        outOf: "Out of",
+        playAgain: "Play again",
+        exitToHome: "Exit to home",
+      },
+
+      probability: {
+        title: "Probability analysis",
+        subtitle: "AI-powered answer distribution",
+        basedOn: "Based on analysis patterns, here's the probability distribution:",
+        optionLabel: "Option {option}",
+        warning: "⚠️ This is a probability estimate, not a guarantee. Use your knowledge!",
+        gotIt: "Got it!",
+      },
+
+      chemLeung: {
+        expert: "Chemistry expert",
+        analyzing: "ChemLeung is analyzing the question...",
+        defaultAnalysis: "Here's my expert analysis of this question...",
+        remember: "Remember, this is guidance - make your final decision!",
+        thanks: "Thanks, ChemLeung!",
+      },
+
+      errors: {
+        startFailed: "Failed to start Millionaire mode",
+        tokenUpdateFailed: "Failed to update token balance",
+      },
     },
     
     // Practice Modes
@@ -1221,6 +1308,98 @@ const translations = {
       customTitle: "自訂練習",
       customSubtitle: "由你決定",
       customDesc: "選擇主題與設定",
+
+      millionaireTitle: "百萬富翁",
+      millionaireSubtitle: "15 題階梯",
+      millionaireDesc: "一題答錯即結束。答對越多題可獲得更多代幣。",
+    },
+
+    millionaire: {
+      modeName: "Millionaire",
+      questionLabel: "題目",
+      tokensUnit: "代幣",
+      tokenLadder: "代幣階梯",
+      safetyNet: "安全網",
+      cleared: "已通關",
+      now: "目前",
+      amountTokens: "{count} 代幣",
+
+      lifelines: {
+        aiTips: "AI 提示",
+        fiftyFifty: "50:50",
+        chemLeung: "ChemLeung",
+      },
+
+      rewardIfClear: "答對可得",
+      currentBank: "目前累積",
+      lockIn: "鎖定答案",
+      quit: "退出",
+
+      periodicTableOfElements: "元素週期表",
+      periodicTable: "元素週期表",
+      periodicTableAlt: "元素週期表",
+      close: "關閉",
+      details: "詳情",
+      cashOutToSavePrefix: "提取獎金以保留你目前累積的",
+      cashOutToSaveSuffix: "，",
+
+      overlays: {
+        finalDecision: "最後決定",
+        confirmQuit: "確認退出",
+        cashOutToSavePrefix: "提取獎金以保留你目前累積的",
+        cashOutToSaveSuffix: "，",
+        orStayContinue: "或繼續挑戰本回合。",
+        cashOut: "提取獎金",
+        stay: "繼續",
+
+        safeHaven: "安全點",
+        safetyNetReached: "已達到安全網",
+        guaranteedPrefix: "你的",
+        guaranteedSuffix: "已被保證。",
+        guaranteed: "你的 {amount} {unit} 已被保證。",
+        safeHavenAt: "安全點：第{level}題",
+        continue: "繼續",
+
+        decision: "決定",
+        correct: "正確！",
+        clearedCurrentReward: "你已答對第{level}題。目前獎勵：",
+        nextQuestion: "下一題",
+      },
+
+      gameOver: {
+        finalResult: "最終結果",
+        gameOver: "遊戲結束",
+        finalRewardAria: "最終獎勵",
+        cashOutConfirmed: "已確認提取獎金",
+        perfectRun: "完美通關",
+        betterLuck: "下次再接再厲",
+        questionsAnswered: "已作答題數",
+        outOf: "共",
+        playAgain: "再玩一次",
+        exitToHome: "返回主頁",
+      },
+
+      probability: {
+        title: "機率分析",
+        subtitle: "AI 驅動答案分佈",
+        basedOn: "根據分析結果，以下為各選項機率分佈：",
+        optionLabel: "選項 {option}",
+        warning: "⚠️ 這是機率估計，並非保證。請以你的知識作答！",
+        gotIt: "明白！",
+      },
+
+      chemLeung: {
+        expert: "化學專家",
+        analyzing: "ChemLeung 正在分析題目...",
+        defaultAnalysis: "以下是我對這題的專業分析...",
+        remember: "記住：這只是建議，最終決定由你作出！",
+        thanks: "多謝 ChemLeung！",
+      },
+
+      errors: {
+        startFailed: "無法開始 Millionaire 模式",
+        tokenUpdateFailed: "更新代幣餘額失敗",
+      },
     },
     
     // 練習模式
