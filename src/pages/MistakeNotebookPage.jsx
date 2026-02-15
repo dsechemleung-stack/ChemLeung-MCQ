@@ -1796,7 +1796,7 @@ export default function MistakeNotebookPage({ questions = [] }) {
                       {t('notebook.keepPracticing')}
                     </p>
                     <button
-                      onClick={() => navigate('/')}
+                      onClick={() => navigate('/practice')}
                       className="px-6 py-3 bg-indigo-600 text-white rounded-lg font-bold hover:bg-indigo-700 transition-all"
                     >
                       {t('notebook.startPracticing')}

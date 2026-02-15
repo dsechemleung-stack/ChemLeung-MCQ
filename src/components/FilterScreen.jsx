@@ -1,7 +1,9 @@
 import React, { useState, useMemo } from 'react';
 import { Settings, Play, Check, Filter } from 'lucide-react';
+import { useLanguage } from '../contexts/LanguageContext';
 
 export default function FilterScreen({ questions, onStart }) {
+  const { t, tf } = useLanguage();
   const [selectedTopics, setSelectedTopics] = useState([]);
   const [selectedSubtopics, setSelectedSubtopics] = useState([]);
   const [count, setCount] = useState(10);
@@ -62,7 +64,7 @@ export default function FilterScreen({ questions, onStart }) {
     const finalSelection = count === 'All' ? shuffled : shuffled.slice(0, parseInt(count));
     
     if (finalSelection.length === 0) {
-      alert("No questions found for this selection. Try broader filters!");
+      alert(`${t('practiceMode.noQuestionsFound')} ${t('practiceMode.tryBroaderFilters')}`);
       return;
     }
     onStart(finalSelection);
@@ -76,10 +78,10 @@ export default function FilterScreen({ questions, onStart }) {
         <div className="bg-slate-50 p-6 border-b flex justify-between items-center">
           <h2 className="text-xl font-bold flex items-center gap-2 text-slate-800">
             <Filter size={20} className="text-lab-blue" />
-            Configure Custom Session
+            {t('practiceMode.configureCustomSession')}
           </h2>
           <span className="text-xs font-bold text-slate-400 bg-slate-200 px-2 py-1 rounded">
-            {questions.length} Questions Loaded
+            {tf('practiceMode.questionsLoaded', { count: questions.length })}
           </span>
         </div>
 
@@ -88,7 +90,7 @@ export default function FilterScreen({ questions, onStart }) {
           <div>
             <div className="flex justify-between items-center mb-4">
               <label className="block text-sm font-black text-slate-500 uppercase tracking-widest">
-                1. Select Topics (Multi-choice)
+                {t('practiceMode.selectTopics')}
               </label>
               <button
                 onClick={selectAllTopics}
@@ -98,7 +100,7 @@ export default function FilterScreen({ questions, onStart }) {
                     : 'bg-slate-100 text-slate-600 hover:bg-slate-200 border border-slate-300'
                 }`}
               >
-                {allTopicsSelected ? '✓ All Selected' : 'Select All Topics'}
+                {allTopicsSelected ? `✓ ${t('practiceMode.allSelected')}` : t('practiceMode.selectAllTopics')}
               </button>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
@@ -123,7 +125,7 @@ export default function FilterScreen({ questions, onStart }) {
           {selectedTopics.length > 0 && availableSubtopics.length > 0 && (
             <div className="animate-in slide-in-from-top-4">
               <label className="block text-sm font-black text-slate-500 mb-4 uppercase tracking-widest">
-                2. Focus on Subtopics
+                {t('practiceMode.focusSubtopics')}
               </label>
               <div className="flex flex-wrap gap-2">
                 {availableSubtopics.map(sub => (

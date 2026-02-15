@@ -624,7 +624,7 @@ export default function PracticeModeSelection({ questions }) {
         </div>
       )}
 
-      <FisheyeCarousel onModeSelect={handleCarouselModeSelect} showHeader={false} compact />
+      <FisheyeCarousel onModeSelect={handleCarouselModeSelect} showHeader={false} compact initialModeId="timed" />
     </div>
   );
 }

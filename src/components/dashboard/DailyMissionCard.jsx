@@ -13,7 +13,7 @@ export default function DailyMissionCard() {
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
       {/* Daily Mission - Primary Action */}
       <button
-        onClick={() => navigate('/')}
+        onClick={() => navigate('/practice')}
         className="group relative overflow-hidden rounded-2xl shadow-xl border-2 border-indigo-200 bg-gradient-to-br from-indigo-500 via-indigo-600 to-indigo-700 p-8 text-white hover:shadow-2xl transition-all active:scale-95"
       >
         {/* Background accent */}

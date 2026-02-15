@@ -74,9 +74,18 @@ function AppContent() {
             }
           />
           
-          {/* Practice Mode Selection - NEW */}
           <Route
             path="/"
+            element={
+              <PrivateRoute>
+                <Navigate to="/dashboard" replace />
+              </PrivateRoute>
+            }
+          />
+
+          {/* Practice Mode Selection */}
+          <Route
+            path="/practice"
             element={
               <PrivateRoute>
                 <PracticeModeSelection questions={questions} />

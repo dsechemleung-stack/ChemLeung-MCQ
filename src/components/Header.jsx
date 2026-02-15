@@ -163,8 +163,8 @@ export default function Header() {
                                 </button>
 
                                 <button
-                                    onClick={() => handleNavigation('/')}
-                                    className={`nav-orb ${isActive('/') || isActive('/quiz') ? 'bg-chemistry-green text-white' : 'bg-white/70 text-slate-800 hover:bg-white/80'}`}
+                                    onClick={() => handleNavigation('/practice')}
+                                    className={`nav-orb ${isActive('/practice') || isActive('/quiz') ? 'bg-chemistry-green text-white' : 'bg-white/70 text-slate-800 hover:bg-white/80'}`}
                                     aria-label={t('nav.practice')}
                                     title={t('nav.practice')}
                                 >
@@ -429,8 +429,8 @@ export default function Header() {
                                     <span>{t('nav.dashboard')}</span>
                                 </button>
                                 <button
-                                    onClick={() => handleNavigation('/')}
-                                    className={`flex items-center gap-3 px-4 py-3 rounded-lg font-bold transition-all active:scale-[0.99] ${isActive('/') || isActive('/quiz')
+                                    onClick={() => handleNavigation('/practice')}
+                                    className={`flex items-center gap-3 px-4 py-3 rounded-lg font-bold transition-all active:scale-[0.99] ${isActive('/practice') || isActive('/quiz')
                                             ? 'bg-chemistry-green text-white'
                                             : 'text-slate-900 hover:bg-slate-100'
                                         }`}

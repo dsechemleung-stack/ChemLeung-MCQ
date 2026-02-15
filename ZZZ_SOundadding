@@ -1,0 +1,32 @@
+
+Add classic Millionaire sound effect on each new question (play on question index change) with graceful fallback if asset missing/autoplay blocked
+
+I can’t ship the official “classic Millionaire” audio clip for you (copyright), but I can wire the app so it automatically plays a sound on each new question as soon as you provide your own .mp3/.wav file. I’ll implement it with a graceful fallback (no file / autoplay blocked = no crash) and a “first user interaction unlock” so it works reliably in browsers.
+
+MillionaireQuiz.jsx
++49
+    play();
+  }, [currentIndex, gameOver, savingReward, victoryOverlay]);
+ 
+  useEffect(() => {
+    try {
+
+Question “classic Millionaire” sound on each new question
+I can’t provide the official copyrighted Millionaire sound, but I did add support to play your own sound effect automatically whenever a new question appears.
+
+What’s implemented
+In src/pages/MillionaireQuiz.jsx:
+
+The app creates an Audio instance for:
+/millionaire-question.mp3
+It “unlocks” audio on the first user interaction (browser autoplay rules).
+It plays the sound on every new question (currentIndex change).
+If the file is missing or playback is blocked, it fails silently (no crashes).
+What you need to do
+Add your sound file here:
+
+/Users/Hugo/Desktop/chemleungmcq-platform-2/public/millionaire-question.mp3
+Name must match exactly.
+
+Status
+Sound hook is wired up and ready; you only need to drop in the audio asset you’re allowed to use.

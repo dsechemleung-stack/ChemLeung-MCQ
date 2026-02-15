@@ -14,7 +14,7 @@ export default function QuizPage() {
   
   useEffect(() => {
     if (!questions || questions.length === 0) {
-      navigate('/');
+      navigate('/practice');
     }
   }, [questions, navigate]);
 
@@ -194,7 +194,7 @@ export default function QuizPage() {
       localStorage.removeItem('quiz_mode');
       localStorage.removeItem('quiz_timer_enabled');
       localStorage.removeItem('quiz_is_timed_mode');
-      navigate('/');
+      navigate('/practice');
     }
   };
 

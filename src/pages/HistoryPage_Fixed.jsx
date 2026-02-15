@@ -248,7 +248,7 @@ export default function HistoryPage() {
                   : t('history.startPracticingHistory')}
               </p>
               {attempts.length === 0 && (
-                <button onClick={() => navigate('/')} className="px-6 py-3 bg-lab-blue text-white rounded-lg font-bold hover:bg-blue-800 transition-all">
+                <button onClick={() => navigate('/practice')} className="px-6 py-3 bg-lab-blue text-white rounded-lg font-bold hover:bg-blue-800 transition-all">
                   {t('history.takeFirstQuiz')}
                 </button>
               )}

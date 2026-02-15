@@ -35,7 +35,7 @@ export default function RegisterPage() {
       setError('');
       setLoading(true);
       await signup(email, password, displayName);
-      navigate('/');
+      navigate('/dashboard');
     } catch (err) {
       console.error(err);
       if (err.code === 'auth/email-already-in-use') {

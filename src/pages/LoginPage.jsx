@@ -20,7 +20,7 @@ export default function LoginPage() {
       setError('');
       setLoading(true);
       await login(email, password);
-      navigate('/');
+      navigate('/dashboard');
     } catch (err) {
       console.error(err);
       if (err.code === 'auth/user-not-found') {

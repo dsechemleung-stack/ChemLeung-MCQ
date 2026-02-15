@@ -37,7 +37,7 @@ export default function ResultsPage() {
 
   useEffect(() => {
     if (!questions || questions.length === 0 || Object.keys(userAnswers).length === 0) {
-      navigate('/');
+      navigate('/practice');
     }
   }, [navigate, questions, userAnswers]);
 
@@ -328,7 +328,7 @@ export default function ResultsPage() {
     localStorage.removeItem('quiz_srs_cards');
     localStorage.removeItem('quiz_srs_session_id');
     
-    navigate('/');
+    navigate('/practice');
   };
 
   return (

@@ -2,7 +2,7 @@
 import React, { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { doc, updateDoc, increment } from 'firebase/firestore';
-import { Sparkles, PhoneCall, BarChart3, Percent, X, Menu, Info, MoreHorizontal, LayoutGrid, HandCoins, ShieldCheck } from 'lucide-react';
+import { Coins, PhoneCall, BarChart3, Percent, X, Menu, Info, MoreHorizontal, LayoutGrid, HandCoins, ShieldCheck } from 'lucide-react';
 import { motion, useMotionValue, useSpring } from 'framer-motion';
 
 import { db } from '../firebase/config';
@@ -128,7 +128,7 @@ export default function MillionaireQuiz({ questions: allQuestions = [] }) {
     } catch (e) {
       console.error(e);
       alert(e.message || t('millionaire.errors.startFailed'));
-      navigate('/');
+      navigate('/practice');
     } finally {
       setLoading(false);
     }
@@ -502,8 +502,8 @@ export default function MillionaireQuiz({ questions: allQuestions = [] }) {
       <div className="max-w-7xl mx-auto px-4 py-4 h-full flex flex-col">
         <div className="flex items-center justify-between gap-3 mb-4 flex-none">
           <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-xl bg-amber-400/10 border border-amber-300/30 flex items-center justify-center">
-              <Sparkles className="text-amber-300" size={20} />
+            <div className="w-12 h-12 rounded-xl bg-cyan-400/10 border border-cyan-300/30 flex items-center justify-center">
+              <Coins className="text-white" size={20} />
             </div>
             <div>
               <div className="text-xs uppercase tracking-widest text-white/70">{t('millionaire.modeName')}</div>
@@ -779,6 +779,13 @@ export default function MillionaireQuiz({ questions: allQuestions = [] }) {
               </div>
               <div className="m-dec-actions">
                 <button
+                  onClick={() => setShowExitConfirm(false)}
+                  className="m-dec-hex-btn m-dec-hex-btn--stay"
+                >
+                  <ShieldCheck size={18} />
+                  {t('millionaire.overlays.stay')}
+                </button>
+                <button
                   onClick={async () => {
                     setShowExitConfirm(false);
                     await handleCashOut();
@@ -787,13 +794,6 @@ export default function MillionaireQuiz({ questions: allQuestions = [] }) {
                 >
                   <HandCoins size={18} />
                   {t('millionaire.overlays.cashOut')}
-                </button>
-                <button
-                  onClick={() => setShowExitConfirm(false)}
-                  className="m-dec-hex-btn m-dec-hex-btn--stay"
-                >
-                  <ShieldCheck size={18} />
-                  {t('millionaire.overlays.stay')}
                 </button>
               </div>
             </div>
@@ -953,7 +953,7 @@ export default function MillionaireQuiz({ questions: allQuestions = [] }) {
           fallbackReward={computeFailReward(level)}
           reason={finalReason}
           onPlayAgain={() => window.location.reload()}
-          onExit={() => navigate('/')}
+          onExit={() => navigate('/practice')}
         />
       )}
 
