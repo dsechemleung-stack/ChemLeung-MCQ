@@ -115,3 +115,174 @@ If you tell me which screens users open most (Forum? Calendar? SRS? Leaderboard?
 
 ## Status
 - **Done**: Identified and ranked the main read-heavy code paths in your current repo and explained why they cost reads.
+
+
+I’ll scan the codebase for the main Firestore read hotspots (calls to `getDocs`, `getDoc`, `onSnapshot`, and any loops that issue per-item reads). Then I’ll rank the top ~10 actions/functions that likely generate the most reads in real usage (Dashboard, Calendar, Mistake Notebook, SRS, etc.), explain why, and suggest concrete optimizations (caching, batching, query tightening, pagination, denormalization).
+
+
+
+
+
+
+## Top 10 read-heavy actions/functions in your current code (and how to fix)
+
+Below is a **practical ranking** based on (a) how many docs each call can touch and (b) how often the UI triggers it (Dashboard loads, Calendar month switches, Mistake Notebook loads, etc.). “Reads” here mainly means `getDocs`, `getDoc`, `getCountFromServer`, and `onSnapshot`.
+
+---
+
+## 1) **Mistake Notebook load**: [MistakeNotebookPage.loadMistakes()](cci:1://file:///Users/Hugo/Desktop/chemleungmcq-platform-2/src/pages/DashboardPage_Fixed.jsx:131:2-139:3)
+**Why it’s heavy**
+- Calls `quizService.getUserAttempts(currentUser.uid, 200)` which does a `getDocs` over `attempts` with `limit(200)`.
+- Also calls `srsService.getRecentReviewAttempts(currentUser.uid, 30)`.
+- Then calls `srsService.getCardsByQuestionIds(userId, deckQuestionIds)` (often large).
+- This can happen on every notebook open + after actions like restore/archive.
+
+**Fix ideas**
+- **Reduce `attempts` reads**: keep a **cached “mistake index”** in Firestore (or localStorage) so you don’t need to scan 200 attempts each time.
+- **Pagination**: stop at 50 attempts and load more on demand.
+- **Incremental updates**: store `lastProcessedAttemptTimestamp` and only process newer attempts.
+- **Batch reads for cards**: ensure `getCardsByQuestionIds` uses `where('questionId', 'in', [...])` chunked by 10/30, not N×`getDoc`.
+
+---
+
+## 2) **Calendar month view**: [calendarServiceOptimized.getCalendarData(userId, year, month)](cci:1://file:///Users/Hugo/Desktop/chemleungmcq-platform-2/src/services/calendarService.js:34:0-96:1)
+**Why it’s heavy**
+- One `getDocs` query for the month range. If you have lots of “study plan” children events, this grows fast.
+
+**Fix ideas**
+- **Hard limit**: add a cap per month (or per day) if needed, or store aggregated “day summary” docs.
+- **Denormalize day summary**: maintain `users/{uid}/calendar_day_summaries/{YYYY-MM-DD}` with counts and only fetch details when a day is clicked.
+- **Indexing**: ensure `date` is indexed (Firestore usually does, but composite queries may need indexes when you add more filters).
+
+---
+
+## 3) **SRS overdue archive sweep**: `srsService.archiveOverdueCards(userId)`
+**Why it’s heavy**
+- A `getDocs` query for *all* cards with `nextReviewDate < sevenDaysAgoStr`.
+- If user has lots of SRS cards, this can be big and it’s triggered automatically.
+
+**Fix ideas**
+- Replace with a **scheduled backend job** (Cloud Function cron) so clients don’t do bulk reads.
+- Store an **“overdueBucket”** field or partition by month to reduce range scans.
+- Use `getCountFromServer` first; only fetch full docs if count > 0 and maybe limit per run.
+
+---
+
+## 4) **SRS stats page / analytics**: `srsService.getReviewStats(userId)`
+**Why it’s heavy**
+- Reads **all cards** for a user via `getDocs(where('userId','==',userId))`.
+- Then computes stats client-side.
+
+**Fix ideas**
+- Maintain a **stats document** updated on writes (submit review, create card, archive, restore).
+- If you must compute client-side, query only needed fields (Firestore doesn’t support field projection like SQL, so better to maintain summary docs).
+
+---
+
+## 5) **Performance recording**: `performanceService.recordQuizResults(userId, questions, answers)`
+**Why it’s heavy**
+- For each subtopic group it does `await getDoc(subtopicRef)` inside a loop.
+- A quiz can touch many subtopics → many `getDoc` reads.
+
+**Fix ideas**
+- Use **no-read “merge write”** strategy:
+  - Store per-subtopic counters with `increment()` (no need to read existing doc).
+  - Keep accuracy derived later (or compute with Cloud Function).
+- If you need `recentAttempts`, store it in a **separate subcollection** and don’t read+rewrite arrays.
+
+---
+
+## 6) **AI recommendation generation**: `performanceService.generateAIRecommendations(userId)`
+**Why it’s heavy**
+- Calls `getAllPerformance(userId)` → `getDocs` for *all subtopic docs*.
+- Then `saveRecommendations()` does `getDocs` to clear old pending recs, then writes new ones.
+
+**Fix ideas**
+- Store only **top weak areas** (cap to e.g. 20) rather than “ALL weak areas”.
+- Don’t delete old recs by querying:
+  - Use deterministic IDs per subtopic (e.g. `topic::subtopic`) so “upsert” overwrites without clearing.
+- Add a **TTL** field and let old ones expire / ignore instead of deleting.
+
+---
+
+## 7) **Forum search hydration**: `forumService.searchPosts(... hydrate=true)`
+**Why it’s heavy**
+- Algolia returns hits, then you do `Promise.all(getDoc(...))` for each hit → typically 10 extra reads per search page.
+- If user scrolls pages, reads scale linearly.
+
+**Fix ideas**
+- Default `hydrate=false` and render from Algolia payload only.
+- If you need full post content, fetch lazily only when opening a post.
+- Or store enough fields in Algolia index to avoid Firestore hydration entirely.
+
+---
+
+## 8) **Forum notifications realtime**: `forumService.subscribeToNotifications(userId, limit=50)`
+**Why it’s heavy**
+- `onSnapshot` charges reads for initial load + updates.
+- If notifications change frequently, this can be a steady read stream.
+
+**Fix ideas**
+- Reduce limit to 20.
+- Subscribe only when the notifications panel is open.
+- Consider storing an unread count in `users/{uid}` and only snapshot that.
+
+---
+
+## 9) **Token systems**: `tokenService.subscribeToTokens` + `getTokenHistory`
+**Why it’s heavy**
+- `subscribeToTokens` is realtime reads (every token change triggers reads).
+- `getTokenHistory` does `getDocs` (limit 8) — not huge, but called frequently in UI can add up.
+
+**Fix ideas**
+- Subscribe only in screens that need live tokens (store header can just read once + refresh on focus).
+- Cache token history locally; refresh only after a token-affecting action.
+
+---
+
+## 10) **Quiz attempt history**: `quizService.getUserAttempts(userId, limitCount)`
+**Why it’s heavy**
+- Many screens call it (Dashboard, Mistake Notebook, History views).
+- Even with `limit(200)`, repeated calls across pages add up.
+
+**Fix ideas**
+- Add a shared **attempts cache** (you already cache in Mistake Notebook with TTL—extend it to Dashboard too).
+- Reduce default limit to 50; fetch more on demand.
+- Denormalize “recent attempts summary” into `users/{uid}`.
+
+---
+
+# Cross-cutting fixes that give the biggest wins
+
+## A) Add a lightweight **client read profiler**
+- Wrap Firestore `getDoc/getDocs/onSnapshot` in helper functions that log:
+  - collection path
+  - number of docs returned
+  - callsite label
+This quickly confirms the “top 10” with real numbers (instead of guesswork).
+
+## B) Prefer **incremental / derived data**
+- Anything computed from scanning lots of attempts/cards:
+  - move to “write-time updates”
+  - store summaries (counts, top topics, last activity) in user doc or dedicated summary docs
+
+## C) Avoid **N+1 read patterns**
+- If you see `for (...) await getDoc(...)`:
+  - replace with batched `in` queries (chunked)
+  - or write-only increments / merges
+
+## D) Realtime (`onSnapshot`) only when necessary
+- Subscribe only when UI is visible.
+- Reduce limits.
+- Snapshot a tiny “summary doc” not a large list.
+
+---
+
+## If you want, I can make this concrete
+Tell me what your priority is:
+
+- **(1)** Reduce Firestore cost on **Mistake Notebook load**
+- **(2)** Reduce cost on **Calendar**
+- **(3)** Reduce cost on **AI recommendations/performance**
+
+…and I’ll implement 1–2 high-impact changes with minimal refactor (e.g., remove subtopic `getDoc` loop using `increment()`, cap AI rec generation, or add day summaries/caching).

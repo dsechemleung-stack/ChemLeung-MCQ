@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SRS Debug Data Creator</title>
+    <style>
+        body {
+            font-family: Inter, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f8fafc;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        h1 {
+            color: #1e293b;
+            margin-bottom: 10px;
+        }
+        .subtitle {
+            color: #64748b;
+            margin-bottom: 30px;
+        }
+        .scenario {
+            background: #f1f5f9;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        .scenario h3 {
+            color: #334155;
+            margin-top: 0;
+        }
+        button {
+            background: #3b82f6;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 6px;
+            font-weight: 600;
+            cursor: pointer;
+            margin-right: 10px;
+            margin-bottom: 10px;
+        }
+        button:hover {
+            background: #2563eb;
+        }
+        button:disabled {
+            background: #94a3b8;
+            cursor: not-allowed;
+        }
+        .success {
+            background: #10b981;
+        }
+        .warning {
+            background: #f59e0b;
+        }
+        .danger {
+            background: #ef4444;
+        }
+        .log {
+            background: #1e293b;
+            color: #e2e8f0;
+            padding: 15px;
+            border-radius: 6px;
+            font-family: monospace;
+            font-size: 12px;
+            max-height: 300px;
+            overflow-y: auto;
+            margin-top: 20px;
+        }
+        .status {
+            padding: 10px;
+            border-radius: 6px;
+            margin-bottom: 15px;
+        }
+        .status.info {
+            background: #dbeafe;
+            color: #1e40af;
+        }
+        .status.success {
+            background: #d1fae5;
+            color: #065f46;
+        }
+        .status.error {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔧 SRS Debug Data Creator</h1>
+        <p class="subtitle">Create test data to simulate overdue reviews and test the archiving system</p>
+        
+        <div class="status info">
+            <strong>📋 What this does:</strong><br>
+            • Creates 60 cards overdue on 16/2 (will show in overdue count)<br>
+            • Creates 20 cards overdue on 15/2 or before (will be archived)<br>
+            • Provides time travel controls to test UI at different dates
+        </div>
+
+        <div class="scenario">
+            <h3>📊 Test Scenarios</h3>
+            <p><strong>Expected Results:</strong></p>
+            <ul>
+                <li><strong>Today (17/2):</strong> Should show 60 overdue, 20 archived</li>
+                <li><strong>Yesterday (16/2):</strong> Should show 0 overdue, 0 archived</li>
+                <li><strong>7 days ago (10/2):</strong> Should show 0 overdue, 80 archived</li>
+            </ul>
+        </div>
+
+        <div>
+            <button onclick="createDebugData()">🚀 Create Debug Data</button>
+            <button onclick="checkCurrentState()" class="warning">📊 Check Current State</button>
+            <button onclick="clearDebugData()" class="danger">🗑️ Clear Debug Data</button>
+        </div>
+
+        <div class="scenario">
+            <h3>⏰ Time Travel Controls</h3>
+            <p>Travel to different dates to test the UI:</p>
+            <button onclick="travelTo('2026-02-17')">📅 Today (17/2)</button>
+            <button onclick="travelTo('2026-02-16')">📅 Yesterday (16/2)</button>
+            <button onclick="travelTo('2026-02-15')">📅 15/2</button>
+            <button onclick="travelTo('2026-02-10')">📅 7 days ago</button>
+            <button onclick="resetTime()" class="success">⏰ Reset Time</button>
+        </div>
+
+        <div id="status"></div>
+        <div id="log" class="log" style="display: none;"></div>
+    </div>
+
+    <!-- Firebase SDK -->
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+
+    <script>
+        // Initialize Firebase (using your existing config)
+        const firebaseConfig = {
+            // Add your Firebase config here or load from your existing config
+        };
+
+        // Try to initialize with existing config if available
+        let db;
+        try {
+            if (window.firebase) {
+                db = window.firebase.firestore();
+            } else {
+                // Fallback config - replace with your actual config
+                firebase.initializeApp(firebaseConfig);
+                db = firebase.firestore();
+            }
+        } catch (error) {
+            showStatus('Firebase initialization failed. Please check your config.', 'error');
+            console.error('Firebase error:', error);
+        }
+
+        const TEST_USER_ID = 'debug_test_user_' + Date.now();
+        let debugDataCreated = false;
+
+        // Mock question data
+        const mockQuestions = [
+            { ID: 'chem_001', Topic: 'Atomic Structure', Subtopic: 'Electron Configuration' },
+            { ID: 'chem_002', Topic: 'Atomic Structure', Subtopic: 'Periodic Trends' },
+            { ID: 'chem_003', Topic: 'Bonding', Subtopic: 'Covalent Bonds' },
+            { ID: 'chem_004', Topic: 'Bonding', Subtopic: 'Ionic Bonds' },
+            { ID: 'chem_005', Topic: 'Thermodynamics', Subtopic: 'Enthalpy' },
+            { ID: 'chem_006', Topic: 'Thermodynamics', Subtopic: 'Entropy' },
+            { ID: 'chem_007', Topic: 'Kinetics', Subtopic: 'Reaction Rates' },
+            { ID: 'chem_008', Topic: 'Kinetics', Subtopic: 'Activation Energy' },
+            { ID: 'chem_009', Topic: 'Equilibrium', Subtopic: 'Le Chatelier' },
+            { ID: 'chem_010', Topic: 'Equilibrium', Subtopic: 'Equilibrium Constants' }
+        ];
+
+        function log(message) {
+            const logDiv = document.getElementById('log');
+            logDiv.style.display = 'block';
+            logDiv.innerHTML += new Date().toLocaleTimeString() + ': ' + message + '\n';
+            logDiv.scrollTop = logDiv.scrollHeight;
+        }
+
+        function showStatus(message, type = 'info') {
+            const statusDiv = document.getElementById('status');
+            statusDiv.className = `status ${type}`;
+            statusDiv.textContent = message;
+            setTimeout(() => {
+                statusDiv.textContent = '';
+                statusDiv.className = 'status';
+            }, 5000);
+        }
+
+        async function createDebugData() {
+            if (!db) {
+                showStatus('Firebase not initialized', 'error');
+                return;
+            }
+
+            log('🚀 Starting debug data creation...');
+            showStatus('Creating debug data...', 'info');
+
+            try {
+                const today = new Date();
+                const yesterday = new Date(today);
+                yesterday.setDate(yesterday.getDate() - 1);
+                const threeDaysAgo = new Date(today);
+                threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
+
+                const yesterdayStr = yesterday.toISOString().split('T')[0];
+                const threeDaysAgoStr = threeDaysAgo.toISOString().split('T')[0];
+
+                log(`Today: ${today.toISOString().split('T')[0]}`);
+                log(`Target dates: ${yesterdayStr} (60 cards), ${threeDaysAgoStr} (20 cards)`);
+
+                const cards = [];
+
+                // Create 60 cards overdue on 16/2
+                log('Creating 60 cards overdue on 16/2...');
+                for (let i = 0; i < 60; i++) {
+                    const question = mockQuestions[i % mockQuestions.length];
+                    const card = {
+                        userId: TEST_USER_ID,
+                        questionId: `${question.ID}_${i}`,
+                        topic: question.Topic,
+                        subtopic: question.Subtopic,
+                        sessionId: `debug_session_${Date.now()}`,
+                        attemptId: `debug_attempt_${Date.now()}`,
+                        nextReviewDate: yesterdayStr,
+                        isActive: true,
+                        status: 'review',
+                        interval: Math.floor(Math.random() * 10) + 1,
+                        easeFactor: 2.0 + Math.random() * 0.5,
+                        repetitionCount: Math.floor(Math.random() * 5),
+                        createdAt: new Date(Date.now() - Math.random() * 30 * 24 * 60 * 60 * 1000).toISOString(),
+                        updatedAt: new Date().toISOString()
+                    };
+                    cards.push(card);
+                }
+
+                // Create 20 cards overdue on 15/2 or before
+                log('Creating 20 cards overdue on 15/2 or before...');
+                for (let i = 0; i < 20; i++) {
+                    const question = mockQuestions[i % mockQuestions.length];
+                    const overdueDays = Math.floor(Math.random() * 5) + 3;
+                    const overdueDate = new Date(today);
+                    overdueDate.setDate(overdueDate.getDate() - overdueDays);
+                    const overdueDateStr = overdueDate.toISOString().split('T')[0];
+
+                    const card = {
+                        userId: TEST_USER_ID,
+                        questionId: `${question.ID}_old_${i}`,
+                        topic: question.Topic,
+                        subtopic: question.Subtopic,
+                        sessionId: `debug_session_${Date.now()}`,
+                        attemptId: `debug_attempt_${Date.now()}`,
+                        nextReviewDate: overdueDateStr,
+                        isActive: true,
+                        status: 'review',
+                        interval: Math.floor(Math.random() * 15) + 5,
+                        easeFactor: 1.8 + Math.random() * 0.7,
+                        repetitionCount: Math.floor(Math.random() * 8) + 2,
+                        createdAt: new Date(Date.now() - Math.random() * 45 * 24 * 60 * 60 * 1000).toISOString(),
+                        updatedAt: new Date().toISOString()
+                    };
+                    cards.push(card);
+                }
+
+                // Save to Firestore
+                const batch = db.batch();
+                cards.forEach(card => {
+                    const docRef = db.collection('spaced_repetition_cards').doc();
+                    batch.set(docRef, card);
+                });
+
+                await batch.commit();
+                debugDataCreated = true;
+
+                log(`✅ Successfully created ${cards.length} debug cards`);
+                log(`Test User ID: ${TEST_USER_ID}`);
+                showStatus(`Created ${cards.length} debug cards successfully!`, 'success');
+
+            } catch (error) {
+                log(`❌ Error: ${error.message}`);
+                showStatus('Failed to create debug data', 'error');
+                console.error('Error:', error);
+            }
+        }
+
+        async function checkCurrentState() {
+            if (!db) {
+                showStatus('Firebase not initialized', 'error');
+                return;
+            }
+
+            log('📊 Checking current SRS state...');
+            
+            try {
+                const snapshot = await db.collection('spaced_repetition_cards')
+                    .where('userId', '==', TEST_USER_ID)
+                    .get();
+
+                const cards = snapshot.docs.map(doc => doc.data());
+                const today = new Date().toISOString().split('T')[0];
+                const sevenDaysAgo = new Date();
+                sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+                const sevenDaysAgoStr = sevenDaysAgo.toISOString().split('T')[0];
+
+                const activeCards = cards.filter(c => c.isActive);
+                const overdueOld = activeCards.filter(c => c.nextReviewDate < today);
+                const overdueNew = activeCards.filter(c => c.nextReviewDate < today && c.nextReviewDate >= sevenDaysAgoStr);
+                const shouldArchive = activeCards.filter(c => c.nextReviewDate < sevenDaysAgoStr);
+
+                log(`Total cards: ${cards.length}`);
+                log(`Active cards: ${activeCards.length}`);
+                log(`Overdue (old logic): ${overdueOld.length}`);
+                log(`Overdue (new logic): ${overdueNew.length}`);
+                log(`Should be archived: ${shouldArchive.length}`);
+
+                showStatus('State check complete - see log for details', 'success');
+
+            } catch (error) {
+                log(`❌ Error: ${error.message}`);
+                showStatus('Failed to check state', 'error');
+            }
+        }
+
+        async function clearDebugData() {
+            if (!db) {
+                showStatus('Firebase not initialized', 'error');
+                return;
+            }
+
+            log('🗑️ Clearing debug data...');
+            
+            try {
+                const snapshot = await db.collection('spaced_repetition_cards')
+                    .where('userId', '==', TEST_USER_ID)
+                    .get();
+
+                const batch = db.batch();
+                snapshot.docs.forEach(doc => {
+                    batch.delete(doc.ref);
+                });
+
+                await batch.commit();
+                debugDataCreated = false;
+
+                log(`✅ Cleared ${snapshot.docs.length} debug cards`);
+                showStatus('Debug data cleared successfully', 'success');
+
+            } catch (error) {
+                log(`❌ Error: ${error.message}`);
+                showStatus('Failed to clear debug data', 'error');
+            }
+        }
+
+        // Time travel functions
+        function travelTo(dateString) {
+            log(`⏰ Time traveling to: ${dateString}`);
+            
+            // Override Date.now()
+            const targetDate = new Date(dateString);
+            Date.now = () => targetDate.getTime();
+            
+            // Override new Date()
+            const OriginalDate = window.Date;
+            window.Date = function(...args) {
+                if (args.length === 0) {
+                    return new OriginalDate(targetDate);
+                }
+                return new OriginalDate(...args);
+            };
+            
+            // Copy static methods
+            Object.setPrototypeOf(window.Date, OriginalDate);
+            Object.getOwnPropertyNames(OriginalDate).forEach(name => {
+                if (typeof OriginalDate[name] === 'function') {
+                    window.Date[name] = OriginalDate[name];
+                }
+            });
+            
+            showStatus(`Time traveled to ${dateString}`, 'success');
+            
+            // Trigger page reload to see UI changes
+            setTimeout(() => {
+                if (confirm('Reload page to see UI changes?')) {
+                    location.reload();
+                }
+            }, 1000);
+        }
+
+        function resetTime() {
+            log('⏰ Resetting time...');
+            location.reload();
+        }
+
+        // Initialize
+        log('🔧 SRS Debug Data Creator loaded');
+        log('Ready to create debug data for testing overdue reviews');
+    </script>
+</body>
+</html>

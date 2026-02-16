@@ -1,0 +1,49 @@
+You are helping code a React + Vite web app called ChemLeung MCQ Platform. It’s a chemistry MCQ practice platform with multiple practice modes (Timed, Marathon, AI Daily Mission/SRS, Mistake Review, Custom, Millionaire game mode). The goal is to iterate quickly on UI/UX and features while keeping routing + translations consistent.
+
+Tech stack
+Frontend: React (functional components + hooks), Vite
+Routing: React Router v6 (useNavigate, <Routes>, <Route>, <Navigate>)
+Styling: Tailwind utility classes + custom CSS in src/index.css
+Animation: Framer Motion (used heavily in the mode carousel)
+Icons: lucide-react
+Backend: Firebase (Firestore/Auth) — client-side integration in src/firebase/config.js and services
+i18n: Custom language context with t() and tf() (translation + formatted translation) in src/contexts/LanguageContext.jsx
+Core UX flows / routes (current convention)
+Dashboard: /dashboard (default landing after login)
+Practice mode selection (carousel): /practice
+Standard quiz: /quiz
+Millionaire mode: /millionaire
+Auth: /login, /register
+Key components & where logic lives
+Mode carousel: src/components/FisheyeCarousel.jsx
+Renders the practice mode “cards” (widgets) with special styling per mode.
+Accepts an initialModeId prop to default the selected mode.
+Practice selection page: src/pages/PracticeModeSelection.jsx
+Hosts the carousel, handles selecting a mode and navigating into quizzes.
+Main routing: src/App_Final.jsx
+Defines /dashboard, /practice, /quiz, /millionaire, etc.
+Root / redirects to /dashboard.
+Header nav: src/components/Header.jsx
+“Practice” must route to /practice and highlight on /practice and /quiz.
+Millionaire game: src/pages/MillionaireQuiz.jsx
+Handles the game UI, overlays/modals, lifelines, ladder, quit confirm overlay, etc.
+Translations: src/contexts/LanguageContext.jsx
+English + Chinese dictionaries including millionaire.* keys.
+Styling conventions / sensitive areas
+Layout consistency across mode cards is handled by a mix of:
+Tailwind classes in components
+Custom CSS classes in src/index.css (e.g. Millionaire card split layout, hex buttons, neon glow)
+Avoid duplicating CSS blocks for the same class name (it caused overrides earlier, e.g. .pm-mill-title).
+Millionaire mode has custom visuals:
+Dark top / white bottom split
+Hex-shaped “Start Session” button via clip-path
+Neon/glow accents, icons positioned with absolute/flex combinations
+How to safely make changes in this repo
+Prefer small, targeted edits.
+When changing routes:
+Update all navigate('/') fallbacks to the new intended destinations (/dashboard or /practice).
+When changing translations:
+Add/edit keys in both EN + ZH sections in LanguageContext.jsx
+Ensure UI uses t('...') instead of hardcoded strings.
+Verify with:
+npm run build (preferred quick correctness check)

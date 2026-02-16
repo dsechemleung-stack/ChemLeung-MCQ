@@ -13,10 +13,45 @@ import {
   collection, 
   doc, 
   setDoc,
+  writeBatch,
+  increment,
   Timestamp 
 } from 'firebase/firestore';
 import { performanceService } from './performanceService';
 import { srsService } from './srsService';
+
+async function upsertMistakeIndex(userId, wrongAnswers, userAnswers, attemptId) {
+  if (!userId) return;
+  if (!Array.isArray(wrongAnswers) || wrongAnswers.length === 0) return;
+
+  const nowIso = new Date().toISOString();
+  const batch = writeBatch(db);
+
+  wrongAnswers.forEach((q) => {
+    const questionId = q?.ID;
+    if (!questionId) return;
+    const ref = doc(db, 'users', userId, 'mistakes', String(questionId));
+    batch.set(
+      ref,
+      {
+        ID: questionId,
+        questionId,
+        Topic: q?.Topic || q?.topic || null,
+        Subtopic: q?.Subtopic || q?.subtopic || null,
+        lastAttempted: nowIso,
+        lastWrongAt: nowIso,
+        lastAttemptId: attemptId || null,
+        lastUserAnswer: userAnswers?.[questionId] ?? null,
+        attemptCount: increment(1),
+        updatedAt: nowIso,
+        createdAt: nowIso,
+      },
+      { merge: true }
+    );
+  });
+
+  await batch.commit();
+}
 
 /**
  * 🎯 MAIN FUNCTION: Process quiz completion
@@ -59,6 +94,13 @@ export async function processQuizCompletion(userId, questions, userAnswers, atte
     console.log('🧠 Creating SRS cards for wrong answers...');
     
     const wrongAnswers = questions.filter(q => userAnswers[q.ID] !== q.CorrectOption);
+
+    try {
+      await upsertMistakeIndex(userId, wrongAnswers, userAnswers, attemptId);
+    } catch (error) {
+      console.error('⚠️ Mistake index update error:', error);
+      results.errors.push('Mistake index update failed: ' + error.message);
+    }
     
     if (wrongAnswers.length > 0) {
       console.log(`📝 Found ${wrongAnswers.length} wrong answers`);

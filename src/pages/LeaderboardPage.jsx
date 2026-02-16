@@ -4,7 +4,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useLanguage } from '../contexts/LanguageContext';
 import ChemistryLoading from '../components/ChemistryLoading';
 import { quizService } from '../services/quizService';
-import { Trophy, Medal, Award, Calendar, ArrowLeft, Flame, GraduationCap } from 'lucide-react';
+import { Trophy, Medal, Award, Calendar, ArrowLeft, Flame, GraduationCap, Info } from 'lucide-react';
 import Avatar from '../components/Avatar';
 import TokenRulesModal from '../components/TokenRulesModal';
 
@@ -13,13 +13,13 @@ function LevelBadge({ level, rank }) {
   if (!level) return null;
   const isTopThree = rank <= 3;
   const colors = {
-    S4: isTopThree ? 'bg-white/20 text-white border-white/40' : 'bg-sky-100 text-sky-700 border-sky-200',
-    S5: isTopThree ? 'bg-white/20 text-white border-white/40' : 'bg-violet-100 text-violet-700 border-violet-200',
-    S6: isTopThree ? 'bg-white/20 text-white border-white/40' : 'bg-emerald-100 text-emerald-700 border-emerald-200',
+    S4: isTopThree ? 'bg-white/70 text-slate-900 border-slate-300' : 'bg-sky-100 text-sky-700 border-sky-200',
+    S5: isTopThree ? 'bg-white/70 text-slate-900 border-slate-300' : 'bg-violet-100 text-violet-700 border-violet-200',
+    S6: isTopThree ? 'bg-white/70 text-slate-900 border-slate-300' : 'bg-emerald-100 text-emerald-700 border-emerald-200',
   };
   return (
     <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-xs font-bold ${colors[level] || colors.S5}`}>
-      <GraduationCap size={10} />
+      <GraduationCap size={10} className={isTopThree ? 'text-slate-900' : undefined} />
       {level}
     </span>
   );
@@ -182,7 +182,16 @@ export default function LeaderboardPage() {
             <div className="paper-island-content">
               <h1 className="text-3xl font-black flex items-center gap-3 text-slate-900 bellmt-title ink-amber">
                 <Trophy size={32} className="text-amber-700" />
-                {t('leaderboard.title')}
+                {t('leaderboard.weeklyTitle')}
+                <button
+                  type="button"
+                  onClick={() => setShowRules(true)}
+                  className="ml-1 w-8 h-8 rounded-xl border-2 border-slate-200 bg-white/70 hover:bg-white hover:border-amber-300 transition-all flex items-center justify-center text-amber-700 shadow-sm hover:shadow-md active:scale-[0.99]"
+                  title={t('store.howToEarnTokens')}
+                  aria-label={t('store.howToEarnTokens')}
+                >
+                  <Info size={18} strokeWidth={2.5} />
+                </button>
               </h1>
               <p className="text-slate-700 mt-1 font-semibold">
                 {t('leaderboard.seeHowYouRank')}
@@ -212,27 +221,7 @@ export default function LeaderboardPage() {
 
         {/* Tabs + controls (glass lab panel) */}
         <div className="rounded-3xl border border-white/60 bg-white/75 backdrop-blur-xl shadow-[0_20px_50px_rgba(15,23,42,0.10)] overflow-hidden">
-          <div className="flex border-b border-slate-200/50">
-            <div className="flex-1 px-4 py-4 font-black flex items-center justify-center gap-2 text-sm sm:text-base bg-gradient-to-r from-cyan-600 to-indigo-600 text-white">
-              <Calendar size={16} />
-              {t('leaderboard.thisWeek')}
-            </div>
-          </div>
-
-          <div className="px-6 pt-5">
-            <div className="flex items-center justify-between gap-3">
-              <div />
-
-              <button
-                type="button"
-                onClick={() => setShowRules(true)}
-                className="w-10 h-10 rounded-2xl border border-white/70 bg-white/70 backdrop-blur hover:bg-white/90 transition-all flex items-center justify-center font-black text-indigo-700 shadow-sm hover:shadow-md hover:-translate-y-[1px]"
-                title={t('store.howToEarnTokens')}
-              >
-                !
-              </button>
-            </div>
-          </div>
+          <div className="px-6 pt-6" />
 
           {/* List */}
           <div className="p-6">
@@ -265,7 +254,41 @@ export default function LeaderboardPage() {
                         isCurrentUser ? 'ring-4 ring-emerald-400/60 ring-offset-2 ring-offset-white/60' : ''
                       }`}
                     >
-                      <div className="pointer-events-none absolute inset-0 rounded-2xl opacity-0 group-hover:opacity-100 transition-opacity shadow-[0_0_0_1px_rgba(34,211,238,0.22),0_0_40px_rgba(34,211,238,0.18)]" />
+                      {isTopThree && (
+                        <>
+                          <div
+                            className={`pointer-events-none absolute inset-0 rounded-2xl opacity-90 ${
+                              rank === 1
+                                ? 'bg-gradient-to-r from-amber-50 via-yellow-50 to-amber-100'
+                                : rank === 2
+                                  ? 'bg-gradient-to-r from-slate-50 via-white to-slate-100'
+                                  : 'bg-gradient-to-r from-orange-50 via-amber-50 to-orange-100'
+                            }`}
+                          />
+                          <div
+                            className={`pointer-events-none absolute -inset-[2px] rounded-[18px] blur-lg opacity-70 ${
+                              rank === 1
+                                ? 'bg-amber-300/30'
+                                : rank === 2
+                                  ? 'bg-slate-400/20'
+                                  : 'bg-orange-400/25'
+                            }`}
+                          />
+                          <div
+                            className={`pointer-events-none absolute inset-0 rounded-2xl opacity-0 group-hover:opacity-100 transition-opacity ${
+                              rank === 1
+                                ? 'shadow-[0_0_0_1px_rgba(251,191,36,0.25),0_0_45px_rgba(251,191,36,0.25)]'
+                                : rank === 2
+                                  ? 'shadow-[0_0_0_1px_rgba(148,163,184,0.30),0_0_45px_rgba(148,163,184,0.22)]'
+                                  : 'shadow-[0_0_0_1px_rgba(251,146,60,0.25),0_0_45px_rgba(251,146,60,0.22)]'
+                            }`}
+                          />
+                        </>
+                      )}
+
+                      {!isTopThree && (
+                        <div className="pointer-events-none absolute inset-0 rounded-2xl opacity-0 group-hover:opacity-100 transition-opacity shadow-[0_0_0_1px_rgba(34,211,238,0.22),0_0_40px_rgba(34,211,238,0.18)]" />
+                      )}
                       <div className="relative p-4 sm:p-5 flex items-center gap-4">
                         <div className="flex items-center gap-3 flex-shrink-0">
                           <HexRankBadge rank={rank} />

@@ -32,3 +32,14 @@ _____
 backup 7: Mobile phone UI optimization
 _____
 backup 8: MillionaireQuiz System
+______
+backup 9: UI fix
+_______
+backup 10: Enhanced Millionaire Quiz with 20 questions, fire round Q16-20, timer system, safety nets, and token history management
+______
+Restore this backup 10
+
+git fetch --tags
+git checkout backup-2026-02-16-v10
+# (optional) to continue working:
+git checkout -b restore-from-backup-v10 backup-2026-02-16-v10, added Q16-20 to Millionaire

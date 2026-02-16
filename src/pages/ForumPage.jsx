@@ -23,6 +23,7 @@ function NotificationPanel({ userId, onClose }) {
   const [notifs, setNotifs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [limitCount, setLimitCount] = useState(10);
+  const [showDeleteAllConfirm, setShowDeleteAllConfirm] = useState(false);
 
   useEffect(() => {
     setLoading(true);
@@ -46,9 +47,12 @@ function NotificationPanel({ userId, onClose }) {
   };
 
   const handleDeleteAll = async () => {
-    const ok = window.confirm(t('forum.deleteAllNotificationsConfirm') || 'Delete all notifications?');
-    if (!ok) return;
+    setShowDeleteAllConfirm(true);
+  };
+
+  const confirmDeleteAll = async () => {
     await forumService.deleteAllNotifications(userId, 200);
+    setShowDeleteAllConfirm(false);
   };
 
   const typeLabel = (n) => {
@@ -90,8 +94,14 @@ function NotificationPanel({ userId, onClose }) {
             </button>
           )}
           {notifs.length > 0 && (
-            <button onClick={handleDeleteAll} className="text-xs text-rose-600 hover:underline font-semibold">
-              {t('forum.deleteAll') || 'Delete all'}
+            <button
+              type="button"
+              onClick={handleDeleteAll}
+              className="p-1 hover:bg-rose-50 rounded text-rose-600"
+              aria-label={t('forum.deleteAll')}
+              title={t('forum.deleteAll')}
+            >
+              <Trash2 size={16} />
             </button>
           )}
           <button onClick={onClose} className="p-1 hover:bg-slate-200 rounded"><X size={16} /></button>
@@ -146,6 +156,40 @@ function NotificationPanel({ userId, onClose }) {
           </>
         )}
       </div>
+
+      {showDeleteAllConfirm && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4" onClick={() => setShowDeleteAllConfirm(false)}>
+          <div className="absolute inset-0 bg-black/40" />
+          <div
+            className="relative w-full max-w-sm bg-white rounded-2xl shadow-2xl border-2 border-slate-200 overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="p-4 border-b bg-slate-50 flex items-center gap-3">
+              <AlertCircle className="text-rose-600" size={18} />
+              <h4 className="font-black text-slate-800">{t('forum.deleteAllNotificationsTitle')}</h4>
+            </div>
+            <div className="p-4 text-sm text-slate-700">
+              {t('forum.deleteAllNotificationsBody')}
+            </div>
+            <div className="p-4 border-t bg-white flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setShowDeleteAllConfirm(false)}
+                className="px-4 py-2 rounded-lg font-bold bg-slate-200 text-slate-700 hover:bg-slate-300 transition-all"
+              >
+                {t('common.cancel')}
+              </button>
+              <button
+                type="button"
+                onClick={confirmDeleteAll}
+                className="px-4 py-2 rounded-lg font-bold bg-rose-600 text-white hover:bg-rose-700 transition-all"
+              >
+                {t('common.delete')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -8,6 +8,8 @@
  * 4. Ease factor decreases on failure, never increases
  */
 
+import { getNow } from '../utils/timeTravel';
+
 // SRS Constants
 const SRS_CONFIG = {
   // Initial values for new cards
@@ -142,7 +144,7 @@ export function isCardDue(nextReviewDate, now = new Date()) {
 export function createNewCard(questionData) {
   const { questionId, userId, topic, subtopic, sessionId, attemptId } = questionData;
   
-  const now = new Date();
+  const now = getNow();
   const nextReviewDate = calculateNextReviewDate(SRS_CONFIG.INITIAL_INTERVAL, now);
   
   return {
@@ -195,7 +197,7 @@ export function createNewCard(questionData) {
  * @returns {Object} Updated card state
  */
 export function updateCardAfterReview(card, wasCorrect) {
-  const now = new Date();
+  const now = getNow();
   
   // Calculate new SRS state
   const currentState = {

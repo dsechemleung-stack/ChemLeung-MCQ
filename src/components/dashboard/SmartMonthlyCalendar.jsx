@@ -1,13 +1,15 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ChevronLeft, ChevronRight, Plus, Flag, Calendar as CalendarIcon, BookOpen, Brain, CheckCircle, Trash2, X, Sparkles, ThumbsUp, ThumbsDown, Play, Info, Target, Clock, Eye } from 'lucide-react';
-import { calendarService, EVENT_TYPES } from '../../services/calendarService';
+import { calendarServiceOptimized } from '../../services/calendarServiceOptimized';
+import { EVENT_TYPES } from '../../services/calendarServiceOptimized';
 import { performanceService } from '../../services/performanceService';
 import { quizStorage } from '../../utils/quizStorage';
 import { motion, AnimatePresence } from 'framer-motion';
 import SpacedRepetitionModal from './SpacedRepetitionModal';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { formatHKDateKey, getHKYearMonth, getHKWeekdayIndex, makeHKDate, parseHKDateKey, HK_TIME_ZONE } from '../../utils/hkTime';
+import { getNow } from '../../utils/timeTravel';
 
 /**
  * SmartMonthlyCalendar - COMPLETE FIX
@@ -22,7 +24,7 @@ export default function SmartMonthlyCalendar({ userId, questions = [], onAddEven
   const navigate = useNavigate();
   const { t, tf, isEnglish } = useLanguage();
   const [currentDate, setCurrentDate] = useState(() => {
-    const { year, monthIndex } = getHKYearMonth(new Date());
+    const { year, monthIndex } = getHKYearMonth(getNow());
     return makeHKDate(year, monthIndex, 1);
   });
   const [calendarData, setCalendarData] = useState({});
@@ -33,6 +35,8 @@ export default function SmartMonthlyCalendar({ userId, questions = [], onAddEven
   const [suggestionPreview, setSuggestionPreview] = useState(null);
   const [reviewModal, setReviewModal] = useState(null);
   const [showInfo, setShowInfo] = useState(false);
+  const [showSrsInfo, setShowSrsInfo] = useState(false);
+  const [showAiInfo, setShowAiInfo] = useState(false);
   
   const { year, month: monthIndex } = useMemo(() => {
     const { year: y, monthIndex: m } = getHKYearMonth(currentDate);
@@ -49,7 +53,7 @@ export default function SmartMonthlyCalendar({ userId, questions = [], onAddEven
     
     try {
       setLoading(true);
-      const data = await calendarService.getCalendarData(userId, year, monthIndex);
+      const data = await calendarServiceOptimized.getCalendarData(userId, year, monthIndex);
       console.log('📅 Calendar data loaded:', data);
       setCalendarData(data);
     } catch (error) {
@@ -116,7 +120,34 @@ export default function SmartMonthlyCalendar({ userId, questions = [], onAddEven
   }, [year, monthIndex]);
 
   const monthName = makeHKDate(year, monthIndex, 1).toLocaleDateString(isEnglish ? 'en-US' : 'zh-HK', { timeZone: HK_TIME_ZONE, month: 'long', year: 'numeric' });
-  const today = formatHKDateKey(new Date());
+  const today = formatHKDateKey(getNow());
+
+  const selectedDayData = useMemo(() => {
+    if (!selectedDate) return null;
+    return calendarData[selectedDate] || {
+      exams: [],
+      quizzes: [],
+      suggestions: [],
+      repetitions: [],
+      aiRecommendations: [],
+      completions: [],
+    };
+  }, [calendarData, selectedDate]);
+
+  useEffect(() => {
+    const onRefresh = async () => {
+      if (!userId) return;
+      try {
+        calendarServiceOptimized.clearCalendarCache();
+      } catch {
+        // ignore
+      }
+      await loadCalendarData();
+    };
+
+    window.addEventListener('calendar:refresh', onRefresh);
+    return () => window.removeEventListener('calendar:refresh', onRefresh);
+  }, [userId, year, monthIndex]);
 
   function prevMonth() {
     setCurrentDate(makeHKDate(year, monthIndex - 1, 1));
@@ -179,7 +210,7 @@ export default function SmartMonthlyCalendar({ userId, questions = [], onAddEven
     
     try {
       console.log('✅ Accepting AI recommendation:', recommendation);
-      await calendarService.createAIRecommendationEvent(userId, recommendation);
+      await calendarServiceOptimized.createAIRecommendationEvent(userId, recommendation);
       await loadCalendarData();
       await loadAIRecommendations();
       alert(t('calendar.aiRecommendationAddedSuccess'));
@@ -336,7 +367,7 @@ export default function SmartMonthlyCalendar({ userId, questions = [], onAddEven
   }
 
   async function handleDeleteEvent(eventId, eventType, event) {
-    event.stopPropagation();
+    event?.stopPropagation();
 
     const eventTypeLabel = eventType === EVENT_TYPES.MAJOR_EXAM
       ? t('calendar.eventTypeMajorExam')
@@ -349,7 +380,7 @@ export default function SmartMonthlyCalendar({ userId, questions = [], onAddEven
     }
     
     try {
-      await calendarService.deleteEvent(eventId, true);
+      await calendarServiceOptimized.deleteEvent(userId, eventId, true);
       await loadCalendarData();
       setSelectedDate(null);
       alert(t('calendar.eventDeletedSuccess'));
@@ -466,23 +497,28 @@ export default function SmartMonthlyCalendar({ userId, questions = [], onAddEven
           ))}
           
           {/* Spaced Repetition - GREEN if completed */}
-          {events?.repetitions?.slice(0, 1).map((rep, idx) => (
-            <button
-              key={`rep-${idx}`}
-              onClick={(e) => {
-                e.stopPropagation();
-                rep.completed ? setSelectedDate(dateStr) : handleSpacedRepetitionClick(rep, e);
-              }}
-              className={`flex items-center gap-1 text-xs px-1.5 py-0.5 rounded font-semibold transition-colors ${
-                rep.completed 
-                  ? 'bg-green-100 text-green-700 border border-green-300' 
-                  : 'bg-purple-100 text-purple-700 hover:bg-purple-200'
-              }`}
-            >
-              {rep.completed ? <CheckCircle size={10} className="text-green-600" /> : <Brain size={10} />}
-              <span className="truncate flex-1">{t('calendar.review')}</span>
-            </button>
-          ))}
+          {events?.repetitions?.slice(0, 1).map((rep, idx) => {
+            const isOverdueRep = !rep.completed && rep.date && rep.date < today;
+            return (
+              <button
+                key={`rep-${idx}`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  rep.completed ? setSelectedDate(dateStr) : handleSpacedRepetitionClick(rep, e);
+                }}
+                className={`flex items-center gap-1 text-xs px-1.5 py-0.5 rounded font-semibold transition-colors ${
+                  rep.completed
+                    ? 'bg-green-100 text-green-700 border border-green-300'
+                    : isOverdueRep
+                      ? 'bg-red-100 text-red-700 hover:bg-red-200'
+                      : 'bg-purple-100 text-purple-700 hover:bg-purple-200'
+                }`}
+              >
+                {rep.completed ? <CheckCircle size={10} className="text-green-600" /> : <Brain size={10} />}
+                <span className="truncate flex-1">{t('calendar.review')}</span>
+              </button>
+            );
+          })}
 
           {/* AI Recommendations - GREEN if completed */}
           {events?.aiRecommendations?.slice(0, 1).map((aiRec, idx) => (
@@ -537,10 +573,10 @@ export default function SmartMonthlyCalendar({ userId, questions = [], onAddEven
               <button
                 type="button"
                 onClick={() => setShowInfo(true)}
-                className="w-9 h-9 rounded-xl border-2 border-slate-200 hover:border-indigo-400 hover:bg-indigo-50 transition-all flex items-center justify-center font-black text-indigo-700 hover:scale-110 active:scale-105"
+                className="w-9 h-9 rounded-full border-2 border-slate-200 hover:border-indigo-400 hover:bg-indigo-50 hover:scale-110 hover:shadow-md active:scale-95 transition-all duration-200 flex items-center justify-center text-indigo-700"
                 title={t('dashboard.howThisWorks')}
               >
-                ?
+                <Info size={18} strokeWidth={2.5} />
               </button>
             </div>
             <p className="text-sm text-slate-500 mt-1 font-semibold truncate">{monthName}</p>
@@ -603,10 +639,10 @@ export default function SmartMonthlyCalendar({ userId, questions = [], onAddEven
                   <div className="p-4 rounded-xl border-2 border-slate-200 bg-slate-50">
                     <div className="flex items-center gap-2 mb-2">
                       <Brain size={18} className="text-blue-700" />
-                      <h4 className="font-black text-slate-800">{t('calendar.srsReviewSystemTitle')}</h4>
+                      <h4 className="font-black text-slate-800">{t('calendar.srsReviewMechanismTitle')}</h4>
                     </div>
                     <p className="text-sm text-slate-600 font-medium">
-                      {t('calendar.srsReviewSystemDesc')}
+                      {t('calendar.srsReviewMechanismDesc')}
                     </p>
                   </div>
 
@@ -646,6 +682,124 @@ export default function SmartMonthlyCalendar({ userId, questions = [], onAddEven
         )}
       </AnimatePresence>
 
+      {/* SRS Info Modal - SRS-specific information */}
+      <AnimatePresence>
+        {showSrsInfo && (
+          <motion.div
+            className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
+            onClick={() => setShowSrsInfo(false)}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+          >
+            <motion.div
+              className="bg-white rounded-2xl shadow-2xl w-full max-w-lg border-2 border-purple-200"
+              onClick={(e) => e.stopPropagation()}
+              initial={{ y: 18, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              exit={{ y: 18, opacity: 0 }}
+            >
+              <div className="p-5 border-b-2 border-purple-200 flex items-center justify-between bg-purple-50">
+                <div className="flex items-center gap-2">
+                  <Brain size={20} className="text-purple-700" />
+                  <h3 className="text-lg font-black text-slate-800">{t('calendar.srsReviewMechanismTitle')}</h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowSrsInfo(false)}
+                  className="p-2 hover:bg-white rounded-xl transition-all"
+                  aria-label={t('common.close')}
+                >
+                  <X size={20} />
+                </button>
+              </div>
+
+              <div className="p-5 space-y-4">
+                <div className="p-4 rounded-xl border-2 border-purple-200 bg-purple-50">
+                  <p className="text-sm text-slate-700 leading-relaxed">
+                    {t('calendar.srsReviewMechanismDesc')}
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <h4 className="font-bold text-slate-800 text-sm">{t('calendar.srsFormulaTitle')}</h4>
+                  <div className="p-3 rounded-lg bg-slate-50 border border-slate-200 font-mono text-xs text-slate-600 whitespace-pre-line">
+                    {t('calendar.srsFormulaBody')}
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <h4 className="font-bold text-slate-800 text-sm">{t('calendar.srsGraduationTitle')}</h4>
+                  <p className="text-xs text-slate-600">
+                    {tf('calendar.srsGraduationDesc', { archiveName: 'Mastery Archive' })}
+                  </p>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* AI Info Modal - AI Suggestions-specific information */}
+      <AnimatePresence>
+        {showAiInfo && (
+          <motion.div
+            className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
+            onClick={() => setShowAiInfo(false)}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+          >
+            <motion.div
+              className="bg-white rounded-2xl shadow-2xl w-full max-w-lg border-2 border-purple-200"
+              onClick={(e) => e.stopPropagation()}
+              initial={{ y: 18, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              exit={{ y: 18, opacity: 0 }}
+            >
+              <div className="p-5 border-b-2 border-purple-200 flex items-center justify-between bg-purple-50">
+                <div className="flex items-center gap-2">
+                  <Sparkles size={20} className="text-purple-700" />
+                  <h3 className="text-lg font-black text-slate-800">{t('calendar.aiSuggestionsByTopicTitle')}</h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowAiInfo(false)}
+                  className="p-2 hover:bg-white rounded-xl transition-all"
+                  aria-label={t('common.close')}
+                >
+                  <X size={20} />
+                </button>
+              </div>
+
+              <div className="p-5 space-y-4">
+                <div className="p-4 rounded-xl border-2 border-purple-200 bg-purple-50">
+                  <p className="text-sm text-slate-700 leading-relaxed">
+                    {t('calendar.aiSuggestionsByTopicDesc')}
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <h4 className="font-bold text-slate-800 text-sm">{t('dashboard.aiHowGeneratesTitle')}</h4>
+                  <div className="p-3 rounded-lg bg-slate-50 border border-slate-200 text-xs text-slate-600 whitespace-pre-line">
+                    {t('dashboard.aiHowGeneratesDesc')}
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <h4 className="font-bold text-slate-800 text-sm">{t('dashboard.aiPriorityLevelsTitle')}</h4>
+                  <div className="flex gap-2 flex-wrap">
+                    <span className="px-2 py-1 bg-red-100 text-red-700 rounded text-xs font-bold">{t('dashboard.priorityHigh')}</span>
+                    <span className="px-2 py-1 bg-amber-100 text-amber-700 rounded text-xs font-bold">{t('dashboard.priorityMedium')}</span>
+                    <span className="px-2 py-1 bg-blue-100 text-blue-700 rounded text-xs font-bold">{t('dashboard.priorityLow')}</span>
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Legend */}
       <div className="grid grid-cols-2 md:grid-cols-6 gap-2 mb-4 text-xs">
         <div className="flex items-center gap-1.5">
@@ -663,10 +817,24 @@ export default function SmartMonthlyCalendar({ userId, questions = [], onAddEven
         <div className="flex items-center gap-1.5">
           <Brain size={12} className="text-purple-600" />
           <span className="text-slate-600 font-semibold">{t('calendar.review')}</span>
+          <button
+            onClick={() => setShowSrsInfo(true)}
+            className="w-5 h-5 rounded-full bg-purple-100 hover:bg-purple-200 hover:scale-110 hover:shadow-sm active:scale-95 transition-all duration-200 text-purple-700 flex items-center justify-center"
+            title={t('calendar.srsReviewMechanismTitle')}
+          >
+            <Info size={12} strokeWidth={2.5} />
+          </button>
         </div>
         <div className="flex items-center gap-1.5">
           <Sparkles size={12} className="text-purple-600" />
           <span className="text-slate-600 font-semibold">{t('calendar.legendAiSuggestion')}</span>
+          <button
+            onClick={() => setShowAiInfo(true)}
+            className="w-5 h-5 rounded-full bg-purple-100 hover:bg-purple-200 hover:scale-110 hover:shadow-sm active:scale-95 transition-all duration-200 text-purple-700 flex items-center justify-center"
+            title={t('calendar.aiSuggestionsByTopicTitle')}
+          >
+            <Info size={12} strokeWidth={2.5} />
+          </button>
         </div>
         <div className="flex items-center gap-1.5">
           <CheckCircle size={12} className="text-green-600" fill="currentColor" />
@@ -812,7 +980,7 @@ export default function SmartMonthlyCalendar({ userId, questions = [], onAddEven
 
       {/* Day Detail Modal - Shows completions prominently */}
       <AnimatePresence>
-        {selectedDate && calendarData[selectedDate] && (
+        {selectedDate && selectedDayData && (
           <div 
             className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
             onClick={() => setSelectedDate(null)}
@@ -844,16 +1012,16 @@ export default function SmartMonthlyCalendar({ userId, questions = [], onAddEven
               
               <div className="p-6 space-y-4">
                 {/* COMPLETIONS FIRST - Most important! */}
-                {calendarData[selectedDate].completions?.length > 0 && (
+                {selectedDayData.completions?.length > 0 && (
                   <div className="space-y-3">
                     <div className="flex items-center gap-2 pb-2 border-b-2 border-green-200">
                       <CheckCircle className="text-green-600" size={24} fill="currentColor" />
                       <h4 className="font-black text-slate-800 text-lg">
-                        ✅ Completed Quizzes ({calendarData[selectedDate].completions.length})
+                        ✅ Completed Quizzes ({selectedDayData.completions.length})
                       </h4>
                     </div>
                     
-                    {calendarData[selectedDate].completions.map((comp, idx) => {
+                    {selectedDayData.completions.map((comp, idx) => {
                       const scoreColors = getScoreColor(comp.percentage);
                       return (
                         <div
@@ -941,13 +1109,236 @@ export default function SmartMonthlyCalendar({ userId, questions = [], onAddEven
                 )}
 
                 {/* Other events below completions */}
-                {(calendarData[selectedDate].exams || calendarData[selectedDate].quizzes || 
-                  calendarData[selectedDate].suggestions || calendarData[selectedDate].repetitions) && (
+                {(selectedDayData.exams || selectedDayData.quizzes || 
+                  selectedDayData.suggestions || selectedDayData.repetitions || selectedDayData.aiRecommendations) && (
                   <div className="space-y-3 pt-3 border-t-2">
                     <h4 className="font-bold text-slate-700 text-sm">{t('calendar.scheduledEvents')}</h4>
                     
                     {/* Rest of events... (exams, quizzes, suggestions, etc.) */}
                     {/* (existing modal code for these sections - unchanged) */}
+
+                    {selectedDayData.exams?.length > 0 && (
+                      <div className="space-y-2">
+                        {selectedDayData.exams.map((exam) => (
+                          <div
+                            key={exam.id}
+                            className={`p-4 rounded-xl border-2 transition-all ${
+                              exam.completed
+                                ? 'bg-green-50 border-green-200'
+                                : 'bg-red-50 border-red-200'
+                            }`}
+                          >
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-2">
+                                  {exam.completed
+                                    ? <CheckCircle size={18} className="text-green-700" fill="currentColor" />
+                                    : <Flag size={18} className="text-red-700" />
+                                  }
+                                  <div className="font-black text-slate-800 truncate">{exam.title}</div>
+                                </div>
+                                {Array.isArray(exam.topics) && exam.topics.length > 0 && (
+                                  <div className="text-xs text-slate-600 mt-1 font-semibold truncate">
+                                    {exam.topics.join(', ')}
+                                  </div>
+                                )}
+                              </div>
+
+                              {!exam.completed && (
+                                <button
+                                  onClick={(e) => handleDeleteEvent(exam.id, EVENT_TYPES.MAJOR_EXAM, e)}
+                                  className="p-2 rounded-lg hover:bg-white/70 transition-all"
+                                  title="Delete"
+                                >
+                                  <Trash2 size={16} className="text-red-700" />
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {selectedDayData.quizzes?.length > 0 && (
+                      <div className="space-y-2">
+                        {selectedDayData.quizzes.map((quiz) => (
+                          <div
+                            key={quiz.id}
+                            className={`p-4 rounded-xl border-2 transition-all ${
+                              quiz.completed
+                                ? 'bg-green-50 border-green-200'
+                                : 'bg-amber-50 border-amber-200'
+                            }`}
+                          >
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-2">
+                                  {quiz.completed
+                                    ? <CheckCircle size={18} className="text-green-700" fill="currentColor" />
+                                    : <BookOpen size={18} className="text-amber-700" />
+                                  }
+                                  <div className="font-black text-slate-800 truncate">{quiz.title}</div>
+                                </div>
+                              </div>
+
+                              {!quiz.completed && (
+                                <button
+                                  onClick={(e) => handleDeleteEvent(quiz.id, EVENT_TYPES.SMALL_QUIZ, e)}
+                                  className="p-2 rounded-lg hover:bg-white/70 transition-all"
+                                  title="Delete"
+                                >
+                                  <Trash2 size={16} className="text-amber-700" />
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {selectedDayData.suggestions?.length > 0 && (
+                      <div className="space-y-2">
+                        {selectedDayData.suggestions.map((suggestion) => (
+                          <button
+                            key={suggestion.id}
+                            onClick={() => {
+                              if (suggestion.completed) return;
+                              handleStudySuggestionClick(suggestion);
+                              setSelectedDate(null);
+                            }}
+                            className={`w-full text-left p-4 rounded-xl border-2 transition-all ${
+                              suggestion.completed
+                                ? 'bg-green-50 border-green-200 cursor-default'
+                                : 'bg-blue-50 border-blue-200 hover:shadow-sm'
+                            }`}
+                          >
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-2">
+                                  {suggestion.completed
+                                    ? <CheckCircle size={18} className="text-green-700" fill="currentColor" />
+                                    : <CalendarIcon size={18} className="text-blue-700" />
+                                  }
+                                  <div className="font-black text-slate-800 truncate">{suggestion.title}</div>
+                                </div>
+                                <div className="text-xs text-slate-600 mt-1 font-semibold">
+                                  {tf('calendar.mcqCount', { count: suggestion.questionCount })}
+                                  {suggestion.topic ? ` • ${suggestion.topic}` : ''}
+                                  {suggestion.subtopic ? ` → ${suggestion.subtopic}` : ''}
+                                </div>
+                              </div>
+
+                              {!suggestion.completed && (
+                                <div className="shrink-0 text-xs font-black text-blue-700 flex items-center gap-1">
+                                  <Play size={14} fill="currentColor" />
+                                  Start
+                                </div>
+                              )}
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+
+                    {selectedDayData.repetitions?.length > 0 && (
+                      <div className="space-y-2">
+                        {selectedDayData.repetitions.map((rep) => (
+                          <button
+                            key={rep.id}
+                            onClick={(e) => {
+                              if (rep.completed) return;
+                              handleSpacedRepetitionClick(rep, e);
+                            }}
+                            className={`w-full text-left p-4 rounded-xl border-2 transition-all ${
+                              rep.completed
+                                ? 'bg-green-50 border-green-200 cursor-default'
+                                : (rep.date && rep.date < today)
+                                  ? 'bg-red-50 border-red-200 hover:shadow-sm'
+                                  : 'bg-purple-50 border-purple-200 hover:shadow-sm'
+                            }`}
+                          >
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-2">
+                                  {rep.completed
+                                    ? <CheckCircle size={18} className="text-green-700" fill="currentColor" />
+                                    : <Brain size={18} className="text-purple-700" />
+                                  }
+                                  <div className="font-black text-slate-800 truncate">{t('calendar.review')}</div>
+                                </div>
+                                <div className="text-xs text-slate-600 mt-1 font-semibold">
+                                  {rep.topic ? rep.topic : ''}
+                                  {rep.subtopic ? ` → ${rep.subtopic}` : ''}
+                                  {rep.questionId ? ` • Q${rep.questionId}` : ''}
+                                </div>
+                              </div>
+
+                              {!rep.completed && (
+                                <div className="shrink-0 text-xs font-black text-purple-700 flex items-center gap-1">
+                                  <Play size={14} fill="currentColor" />
+                                  Start
+                                </div>
+                              )}
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+
+                    {selectedDayData.aiRecommendations?.length > 0 && (
+                      <div className="space-y-2">
+                        {selectedDayData.aiRecommendations.map((aiRec) => (
+                          <button
+                            key={aiRec.id}
+                            onClick={() => {
+                              if (aiRec.completed) return;
+                              handleAIRecommendationClick(aiRec);
+                              setSelectedDate(null);
+                            }}
+                            className={`w-full text-left p-4 rounded-xl border-2 transition-all ${
+                              aiRec.completed
+                                ? 'bg-green-50 border-green-200 cursor-default'
+                                : 'bg-gradient-to-r from-purple-50 to-pink-50 border-purple-200 hover:shadow-sm'
+                            }`}
+                          >
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-2">
+                                  {aiRec.completed
+                                    ? <CheckCircle size={18} className="text-green-700" fill="currentColor" />
+                                    : <Sparkles size={18} className="text-purple-700" />
+                                  }
+                                  <div className="font-black text-slate-800 truncate">{t('calendar.aiLabel')}</div>
+                                </div>
+                                <div className="text-xs text-slate-600 mt-1 font-semibold">
+                                  {tf('calendar.mcqCount', { count: aiRec.questionCount })}
+                                  {aiRec.topic ? ` • ${aiRec.topic}` : ''}
+                                  {aiRec.subtopic ? ` → ${aiRec.subtopic}` : ''}
+                                </div>
+                              </div>
+
+                              {!aiRec.completed && (
+                                <div className="shrink-0 text-xs font-black text-purple-700 flex items-center gap-1">
+                                  <Play size={14} fill="currentColor" />
+                                  Start
+                                </div>
+                              )}
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+
+                    {selectedDayData.completions?.length === 0 &&
+                      (selectedDayData.exams?.length || 0) === 0 &&
+                      (selectedDayData.quizzes?.length || 0) === 0 &&
+                      (selectedDayData.suggestions?.length || 0) === 0 &&
+                      (selectedDayData.repetitions?.length || 0) === 0 &&
+                      (selectedDayData.aiRecommendations?.length || 0) === 0 && (
+                      <div className="p-6 rounded-xl border-2 border-slate-200 bg-slate-50 text-slate-600 text-sm font-semibold">
+                        {t('calendar.noEventsScheduled')}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

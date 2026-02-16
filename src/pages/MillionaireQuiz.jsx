@@ -183,12 +183,6 @@ export default function MillionaireQuiz({ questions: allQuestions = [] }) {
     finalizeGame({ reward: failReward, reason: 'time_up' });
   };
 
-  // Debug function to jump to Q14
-  const debugJumpToQ14 = () => {
-    setCurrentIndex(13); // Q14 is index 13
-    resetPerQuestionState();
-  };
-
   const resetPerQuestionState = () => {
     setSelectedOption(null);
     setLockedOption(null);
@@ -292,7 +286,7 @@ export default function MillionaireQuiz({ questions: allQuestions = [] }) {
         const bankAfter = LADDER_TOKENS[passedLevel - 1] || 0;
         setPendingBank(bankAfter);
 
-        if (passedLevel === 5 || passedLevel === 10 || passedLevel === 15) {
+        if (passedLevel === 5 || passedLevel === 10 || passedLevel === 15 || passedLevel === 17) {
           setMilestoneOverlay({ level: passedLevel, tokens: bankAfter });
           return;
         }
@@ -576,14 +570,6 @@ export default function MillionaireQuiz({ questions: allQuestions = [] }) {
           </div>
 
           <div className="flex items-center gap-2">
-            {/* Debug button - jump to Q14 */}
-            <button
-              onClick={debugJumpToQ14}
-              className="hidden lg:inline-flex px-3 py-1.5 bg-purple-600/25 border border-purple-400/40 rounded-xl text-purple-200 hover:bg-purple-600/35 transition text-xs font-mono"
-            >
-              Q14
-            </button>
-
             <div className="hidden sm:block text-right">
               <div className="text-[11px] text-white/70">{t('millionaire.rewardIfClear')}</div>
               <div className="text-lg font-black text-amber-300">
@@ -958,6 +944,11 @@ export default function MillionaireQuiz({ questions: allQuestions = [] }) {
               {milestoneOverlay.level === 15 && (
                 <div className="m-dec-body m-dec-body--fire">
                   🔥 {t('millionaire.overlays.fireRoundWarning')} 🔥
+                </div>
+              )}
+              {milestoneOverlay.level === 17 && (
+                <div className="m-dec-body m-dec-body--fire">
+                  🛡️ {t('millionaire.overlays.finalSafetyNet')} 🛡️
                 </div>
               )}
               <div className="m-dec-actions">

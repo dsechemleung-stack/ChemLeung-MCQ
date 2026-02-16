@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useLanguage } from '../contexts/LanguageContext';
-import { Beaker, Home, Trophy, User, LogOut, History, ChevronDown, Menu, X, Languages, BookOpen, MessageSquare, Zap, ShoppingBag, Clock, AlertTriangle, Pencil, Bell, BellDot } from 'lucide-react';
+import { Beaker, Home, Trophy, User, LogOut, History, ChevronDown, Menu, X, Languages, BookOpen, MessageSquare, Zap, ShoppingBag, Clock, AlertTriangle, Pencil, Bell, BellDot, Trash2, AlertCircle } from 'lucide-react';
 import { quizStorage } from '../utils/quizStorage';
 import { forumService } from '../services/forumService';
 import Avatar from './Avatar';
@@ -26,6 +26,7 @@ export default function Header() {
     const [unreadCount, setUnreadCount] = useState(0);
     const [notifs, setNotifs] = useState([]);
     const [notifLimit, setNotifLimit] = useState(10);
+    const [showDeleteAllNotifsConfirm, setShowDeleteAllNotifsConfirm] = useState(false);
 
     useEffect(() => {
         if (!currentUser || !showNotifPanel) return;
@@ -63,10 +64,14 @@ export default function Header() {
 
     const handleDeleteAllNotifs = async () => {
         if (!currentUser) return;
-        const ok = window.confirm(t('forum.deleteAllNotificationsConfirm') || 'Delete all notifications?');
-        if (!ok) return;
+        setShowDeleteAllNotifsConfirm(true);
+    };
+
+    const confirmDeleteAllNotifs = async () => {
+        if (!currentUser) return;
         try {
             await forumService.deleteAllNotifications(currentUser.uid, 200);
+            setShowDeleteAllNotifsConfirm(false);
         } catch { /* ignore */ }
     };
 
@@ -292,8 +297,14 @@ export default function Header() {
                                                             </button>
                                                         )}
                                                         {notifs.length > 0 && (
-                                                            <button onClick={handleDeleteAllNotifs} className="text-xs text-rose-600 hover:underline font-semibold">
-                                                                {t('forum.deleteAll') || 'Delete all'}
+                                                            <button
+                                                                type="button"
+                                                                onClick={handleDeleteAllNotifs}
+                                                                className="p-1 hover:bg-rose-50 rounded text-rose-600"
+                                                                aria-label={t('forum.deleteAll')}
+                                                                title={t('forum.deleteAll')}
+                                                            >
+                                                                <Trash2 size={16} />
                                                             </button>
                                                         )}
                                                         <button onClick={() => setShowNotifPanel(false)} className="p-1 hover:bg-slate-200 rounded"><X size={16} /></button>
@@ -583,6 +594,40 @@ export default function Header() {
                                     {t('nav.logout')}
                                 </button>
                             </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {showDeleteAllNotifsConfirm && (
+                <div className="fixed inset-0 z-[70] flex items-center justify-center p-4" onClick={() => setShowDeleteAllNotifsConfirm(false)}>
+                    <div className="absolute inset-0 bg-black/40" />
+                    <div
+                        className="relative w-full max-w-sm bg-white rounded-2xl shadow-2xl border-2 border-slate-200 overflow-hidden"
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        <div className="p-4 border-b bg-slate-50 flex items-center gap-3">
+                            <AlertCircle className="text-rose-600" size={18} />
+                            <h4 className="font-black text-slate-800">{t('forum.deleteAllNotificationsTitle')}</h4>
+                        </div>
+                        <div className="p-4 text-sm text-slate-700">
+                            {t('forum.deleteAllNotificationsBody')}
+                        </div>
+                        <div className="p-4 border-t bg-white flex justify-end gap-2">
+                            <button
+                                type="button"
+                                onClick={() => setShowDeleteAllNotifsConfirm(false)}
+                                className="px-4 py-2 rounded-lg font-bold bg-slate-200 text-slate-700 hover:bg-slate-300 transition-all"
+                            >
+                                {t('common.cancel')}
+                            </button>
+                            <button
+                                type="button"
+                                onClick={confirmDeleteAllNotifs}
+                                className="px-4 py-2 rounded-lg font-bold bg-rose-600 text-white hover:bg-rose-700 transition-all"
+                            >
+                                {t('common.delete')}
+                            </button>
                         </div>
                     </div>
                 </div>

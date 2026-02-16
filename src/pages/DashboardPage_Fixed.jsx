@@ -1,39 +1,75 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useLanguage } from '../contexts/LanguageContext';
 import { quizService } from '../services/quizService';
 import { loadMistakesFromStorage } from '../utils/masteryHelper';
 import AttemptDetailModal from '../components/AttemptDetailModal';
-import MasteryProgressHub from '../components/dashboard/MasteryProgressHub';
 import SmartMonthlyCalendar from '../components/dashboard/SmartMonthlyCalendar';
 import EventCreationModal from '../components/dashboard/EventCreationModal';
 import CompactAttemptsList from '../components/dashboard/CompactAttemptsList';
 import ChemistryLoading from '../components/ChemistryLoading';
-import { LogOut, AlertCircle, RefreshCw, X, Info, Gift } from 'lucide-react';
+import { LogOut, AlertCircle, RefreshCw, X, Info, Gift, Target, Brain, TrendingUp, BarChart2, ChevronRight, Sparkles } from 'lucide-react';
 import { awardTokens, canClaimReward, recordRewardClaim } from '../services/tokenService';
 import { performanceService } from '../services/performanceService';
-import { calendarService } from '../services/calendarService';
+import { calendarServiceOptimized } from '../services/calendarServiceOptimized';
 
 // ✅ FIXED: Now receives questions as prop
 export default function DashboardPage({ questions = [] }) {
   const { currentUser, userProfile, logout } = useAuth();
   const { t } = useLanguage();
   const navigate = useNavigate();
-  
+
+  const notebookPath = '/notebook';
+
   const [attempts, setAttempts] = useState([]);
   const [mistakes, setMistakes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [selectedAttempt, setSelectedAttempt] = useState(null);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
-  const [showQuickStatsInfo, setShowQuickStatsInfo] = useState(false);
   const [showEventModal, setShowEventModal] = useState(false);
   const [calendarKey, setCalendarKey] = useState(0);
   const [dailyClaiming, setDailyClaiming] = useState(false);
   const [dailyClaimMessage, setDailyClaimMessage] = useState(null);
   const [aiRecommendations, setAIRecommendations] = useState([]);
   const [showAiSuggestionsInfo, setShowAiSuggestionsInfo] = useState(false);
+
+  const topicsToFocus = useMemo(() => {
+    try {
+      const raw = localStorage.getItem('dashboard_topics_to_focus_cache_v1');
+      const parsed = raw ? JSON.parse(raw) : null;
+      const top = parsed?.top;
+      if (Array.isArray(top) && top.length > 0) return top;
+    } catch {
+      // ignore
+    }
+
+    // Fallback (no cache yet): minimal local calc from stored mistakes
+    const byTopicWrong = {};
+    (mistakes || []).forEach((m) => {
+      const topic = m?.Topic || m?.topic;
+      if (!topic) return;
+      const wrong = Number(m?.attemptCount || 0);
+      byTopicWrong[topic] = (byTopicWrong[topic] || 0) + wrong;
+    });
+
+    const totalByTopic = {};
+    (questions || []).forEach((q) => {
+      const topic = q?.Topic || q?.topic;
+      if (!topic) return;
+      totalByTopic[topic] = (totalByTopic[topic] || 0) + 1;
+    });
+
+    return Object.entries(byTopicWrong)
+      .map(([topic, wrong]) => {
+        const total = totalByTopic[topic] || 0;
+        const density = total > 0 ? wrong / total : wrong;
+        return { topic, score: wrong, total, density };
+      })
+      .sort((a, b) => b.density - a.density)
+      .slice(0, 4);
+  }, [mistakes, questions]);
 
   // ✅ REMOVED: No longer loading questions here - using prop instead
   // const { questions: allQuestions, loading: questionsLoading } = useQuizData(...)
@@ -59,7 +95,7 @@ export default function DashboardPage({ questions = [] }) {
     event?.stopPropagation();
     if (!currentUser?.uid) return;
     try {
-      await calendarService.createAIRecommendationEvent(currentUser.uid, recommendation);
+      await calendarServiceOptimized.createAIRecommendationEvent(currentUser.uid, recommendation);
       await loadAIRecommendations();
       setCalendarKey((prev) => prev + 1);
       alert(t('calendar.aiRecommendationAddedSuccess'));
@@ -85,7 +121,7 @@ export default function DashboardPage({ questions = [] }) {
     try {
       setError(null);
       setLoading(true);
-      const userAttempts = await quizService.getUserAttempts(currentUser.uid, 10);
+      const userAttempts = await quizService.getUserAttempts(currentUser.uid, 200);
       setAttempts(userAttempts);
     } catch (err) {
       setError(err.message);
@@ -99,7 +135,7 @@ export default function DashboardPage({ questions = [] }) {
       const loadedMistakes = loadMistakesFromStorage();
       setMistakes(loadedMistakes);
     } catch (err) {
-      console.error('Error loading mistakes:', err);
+      console.error('Error loading mistakes:', err);1
       setMistakes([]);
     }
   }
@@ -172,7 +208,7 @@ export default function DashboardPage({ questions = [] }) {
               <div className="flex justify-between items-start gap-6">
                 <div className="min-w-0">
                   <h1 className="text-3xl sm:text-4xl font-black text-slate-900 mb-1 leading-tight tracking-tight bellmt-title ink-slate">
-                    Welcome back, {currentUser?.displayName}!
+                    {t('dashboard.welcomeBack')}, {currentUser?.displayName}!
                   </h1>
                   <p className="text-sm sm:text-base text-slate-700 font-semibold truncate">{currentUser?.email}</p>
                 </div>
@@ -185,7 +221,7 @@ export default function DashboardPage({ questions = [] }) {
                       className="flex items-center gap-2 px-4 py-2 bg-chemistry-green text-white rounded-xl font-bold transition-all shadow-sm hover:opacity-95 disabled:bg-slate-300 disabled:cursor-not-allowed"
                     >
                       <Gift size={18} />
-                      {dailyClaiming ? 'Claiming...' : 'Daily reward'}
+                      {dailyClaiming ? t('dashboard.claiming') : t('dashboard.dailyReward')}
                     </button>
                     {dailyClaimMessage && (
                       <div className="mt-1 text-xs font-bold text-slate-700">{dailyClaimMessage}</div>
@@ -196,7 +232,7 @@ export default function DashboardPage({ questions = [] }) {
                     className="flex items-center gap-2 px-4 py-2 bg-white/70 hover:bg-white text-slate-800 rounded-xl font-bold transition-all shadow-sm border border-white/60 hover:scale-[1.02] active:scale-[0.99]"
                   >
                     <LogOut size={18} />
-                    Logout
+                    {t('dashboard.logout')}
                   </button>
                 </div>
               </div>
@@ -211,7 +247,7 @@ export default function DashboardPage({ questions = [] }) {
               <AlertCircle className="text-red-600 flex-shrink-0 mt-1" size={20} />
               <div className="flex-1">
                 <h3 className="font-bold text-red-900 mb-1">
-                  Error Loading Data
+                  {t('dashboard.errorLoadingAttempts')}
                 </h3>
                 <p className="text-sm text-red-800 mb-3">{error}</p>
                 <button
@@ -219,7 +255,7 @@ export default function DashboardPage({ questions = [] }) {
                   className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg font-bold hover:bg-red-700 transition-all"
                 >
                   <RefreshCw size={16} />
-                  Retry
+                  {t('dashboard.retry')}
                 </button>
               </div>
             </div>
@@ -228,7 +264,7 @@ export default function DashboardPage({ questions = [] }) {
 
         {/* BENTO GRID */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 auto-rows-[minmax(140px,auto)]">
-          <div className="lg:col-span-8 lg:row-span-2">
+          <div className="lg:col-span-12 lg:row-span-2">
             <div className="h-full bento-glass bento-glass-hover">
               <div className="bento-glass-content p-6">
                 <SmartMonthlyCalendar
@@ -242,10 +278,244 @@ export default function DashboardPage({ questions = [] }) {
             </div>
           </div>
 
-          <div className="lg:col-span-4">
+          <div className="lg:col-span-6">
             <div className="h-full bento-glass bento-glass-hover">
-              <div className="bento-glass-content p-6">
-                <MasteryProgressHub userProfile={userProfile} mistakes={mistakes} embedded />
+              <div className="bento-glass-content p-6 bg-gradient-to-br from-white/70 via-indigo-50/40 to-purple-50/50 rounded-2xl">
+                <div className="flex items-center justify-between gap-3 mb-4">
+                  <div className="flex items-center gap-2">
+                    <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-100 to-purple-200 flex items-center justify-center shadow-sm">
+                      <Brain className="text-indigo-600" size={22} />
+                    </div>
+                    <div className="min-w-0">
+                      <h3 className="text-lg font-black text-slate-800 leading-tight">{t('dashboard.learningInsights')}</h3>
+                      <div className="text-xs font-semibold text-slate-600 flex items-center gap-1">
+                        <Sparkles size={12} className="text-indigo-600" />
+                        <span className="truncate">{t('dashboard.startLearningJourney')}</span>
+                      </div>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => navigate(notebookPath)}
+                    className="flex items-center gap-1 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-bold text-sm transition-all shadow-sm"
+                  >
+                    {t('dashboard.viewAll')}
+                    <ChevronRight size={16} />
+                  </button>
+                </div>
+
+                {mistakes.length === 0 ? (
+                  <div className="space-y-4">
+                    {/* Show features even without data */}
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2 mb-3">
+                        <BarChart2 className="text-indigo-600" size={16} />
+                        <span className="text-sm font-black text-slate-700">{t('dashboard.availableFeatures')}</span>
+                      </div>
+                      
+                      <div 
+                        onClick={() => navigate(notebookPath)}
+                        className="p-3 bg-gradient-to-r from-indigo-50 to-blue-50 rounded-xl border border-indigo-200 hover:border-indigo-300 hover:shadow-sm transition-all cursor-pointer"
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <TrendingUp className="text-indigo-600" size={16} />
+                            <div>
+                              <div className="text-sm font-black text-indigo-800">{t('dashboard.learningAnalytics')}</div>
+                              <div className="text-xs text-indigo-600">{t('dashboard.learningAnalyticsDesc')}</div>
+                            </div>
+                          </div>
+                          <ChevronRight className="text-indigo-500" size={16} />
+                        </div>
+                      </div>
+
+                      <div 
+                        onClick={() => navigate(notebookPath)}
+                        className="p-3 bg-gradient-to-r from-purple-50 to-pink-50 rounded-xl border border-purple-200 hover:border-purple-300 hover:shadow-sm transition-all cursor-pointer"
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <Brain className="text-purple-600" size={16} />
+                            <div>
+                              <div className="text-sm font-black text-purple-800">{t('dashboard.mistakeDeckWithSRS')}</div>
+                              <div className="text-xs text-purple-600">{t('dashboard.mistakeDeckWithSRSDesc')}</div>
+                            </div>
+                          </div>
+                          <ChevronRight className="text-purple-500" size={16} />
+                        </div>
+                      </div>
+
+                      <div 
+                        onClick={() => navigate(notebookPath)}
+                        className="p-3 bg-gradient-to-r from-green-50 to-emerald-50 rounded-xl border border-green-200 hover:border-green-300 hover:shadow-sm transition-all cursor-pointer"
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <Target className="text-green-600" size={16} />
+                            <div>
+                              <div className="text-sm font-black text-green-800">{t('dashboard.masteryArchiveSystem')}</div>
+                              <div className="text-xs text-green-600">{t('dashboard.masteryArchiveSystemDesc')}</div>
+                            </div>
+                          </div>
+                          <ChevronRight className="text-green-500" size={16} />
+                        </div>
+                      </div>
+
+                      <div 
+                        onClick={() => navigate(notebookPath)}
+                        className="p-3 bg-gradient-to-r from-amber-50 to-orange-50 rounded-xl border border-amber-200 hover:border-amber-300 hover:shadow-sm transition-all cursor-pointer"
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <BarChart2 className="text-amber-600" size={16} />
+                            <div>
+                              <div className="text-sm font-black text-amber-800">{t('dashboard.progressTrackingCharts')}</div>
+                              <div className="text-xs text-amber-600">{t('dashboard.progressTrackingChartsDesc')}</div>
+                            </div>
+                          </div>
+                          <ChevronRight className="text-amber-500" size={16} />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* CTA Button */}
+                    <button
+                      onClick={() => navigate(notebookPath)}
+                      className="w-full py-3 bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-xl font-bold hover:from-indigo-700 hover:to-purple-700 transition-all flex items-center justify-center gap-2 shadow-lg shadow-indigo-600/20"
+                    >
+                      <Brain size={18} />
+                      {t('dashboard.exploreLearningNotebook')}
+                    </button>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {/* Quick Stats */}
+                    <div className="grid grid-cols-3 gap-3">
+                      <div className="text-center p-3 bg-red-50 rounded-xl border border-red-100">
+                        <div className="text-lg font-black text-red-600">{mistakes.length}</div>
+                        <div className="text-xs text-red-600 font-semibold">{t('dashboard.totalMistakes')}</div>
+                      </div>
+                      <div className="text-center p-3 bg-amber-50 rounded-xl border border-amber-100">
+                        <div className="text-lg font-black text-amber-600">{new Set(mistakes.map(m => m.Topic)).size}</div>
+                        <div className="text-xs text-amber-600 font-semibold">{t('dashboard.topics')}</div>
+                      </div>
+                      <div className="text-center p-3 bg-green-50 rounded-xl border border-green-100">
+                        <div className="text-lg font-black text-green-600">{mistakes.filter(m => m.attemptCount > 1).length}</div>
+                        <div className="text-xs text-green-600 font-semibold">{t('dashboard.repeated')}</div>
+                      </div>
+                    </div>
+
+                    {/* Top Topics to Focus */}
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Target className="text-rose-600" size={16} />
+                        <span className="text-sm font-black text-slate-700">{t('dashboard.topTopicsToFocus')}</span>
+                      </div>
+                      {topicsToFocus.slice(0, 3).map((item, idx) => (
+                        <div
+                          key={item.topic}
+                          className="flex items-center justify-between p-3 bg-white rounded-xl border border-slate-200 hover:border-rose-300 hover:bg-rose-50 transition-all cursor-pointer"
+                          onClick={() => navigate(notebookPath)}
+                        >
+                          <div className="flex items-center gap-3">
+                            <div className="w-6 h-6 rounded-full bg-rose-100 flex items-center justify-center text-xs font-black text-rose-700">
+                              {idx + 1}
+                            </div>
+                            <div>
+                              <div className="text-sm font-black text-slate-800">{item.topic}</div>
+                              <div className="text-xs text-slate-500">{item.wrong} {t('dashboard.mistakes')}</div>
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <div className="text-sm font-black text-rose-600">{item.density.toFixed(2)}</div>
+                            <div className="text-xs text-slate-500">{t('dashboard.density')}</div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Learning Features Preview */}
+                    <div className="pt-3 border-t border-slate-200">
+                      <div className="flex items-center gap-2 mb-3">
+                        <BarChart2 className="text-indigo-600" size={16} />
+                        <span className="text-sm font-black text-slate-700">{t('dashboard.learningFeatures')}</span>
+                      </div>
+                      <div className="space-y-2">
+                        <div 
+                          onClick={() => navigate(notebookPath)}
+                          className="p-3 bg-gradient-to-r from-indigo-50 to-blue-50 rounded-xl border border-indigo-200 hover:border-indigo-300 hover:shadow-sm transition-all cursor-pointer"
+                        >
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <TrendingUp className="text-indigo-600" size={16} />
+                              <div>
+                                <div className="text-sm font-black text-indigo-800">{t('dashboard.learningAnalytics')}</div>
+                                <div className="text-xs text-indigo-600">{t('dashboard.learningAnalyticsDesc')}</div>
+                              </div>
+                            </div>
+                            <ChevronRight className="text-indigo-500" size={16} />
+                          </div>
+                        </div>
+
+                        <div 
+                          onClick={() => navigate(notebookPath)}
+                          className="p-3 bg-gradient-to-r from-purple-50 to-pink-50 rounded-xl border border-purple-200 hover:border-purple-300 hover:shadow-sm transition-all cursor-pointer"
+                        >
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <Brain className="text-purple-600" size={16} />
+                              <div>
+                                <div className="text-sm font-black text-purple-800">{t('dashboard.mistakeDeckWithSRS')}</div>
+                                <div className="text-xs text-purple-600">{t('dashboard.mistakeDeckWithSRSDesc')}</div>
+                              </div>
+                            </div>
+                            <ChevronRight className="text-purple-500" size={16} />
+                          </div>
+                        </div>
+
+                        <div 
+                          onClick={() => navigate(notebookPath)}
+                          className="p-3 bg-gradient-to-r from-green-50 to-emerald-50 rounded-xl border border-green-200 hover:border-green-300 hover:shadow-sm transition-all cursor-pointer"
+                        >
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <Target className="text-green-600" size={16} />
+                              <div>
+                                <div className="text-sm font-black text-green-800">{t('dashboard.masteryArchiveSystem')}</div>
+                                <div className="text-xs text-green-600">{t('dashboard.masteryArchiveSystemDesc')}</div>
+                              </div>
+                            </div>
+                            <ChevronRight className="text-green-500" size={16} />
+                          </div>
+                        </div>
+
+                        <div 
+                          onClick={() => navigate(notebookPath)}
+                          className="p-3 bg-gradient-to-r from-amber-50 to-orange-50 rounded-xl border border-amber-200 hover:border-amber-300 hover:shadow-sm transition-all cursor-pointer"
+                        >
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <BarChart2 className="text-amber-600" size={16} />
+                              <div>
+                                <div className="text-sm font-black text-amber-800">{t('dashboard.progressTrackingCharts')}</div>
+                                <div className="text-xs text-amber-600">{t('dashboard.progressTrackingChartsDesc')}</div>
+                              </div>
+                            </div>
+                            <ChevronRight className="text-amber-500" size={16} />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* CTA Button */}
+                    <button
+                      onClick={() => navigate(notebookPath)}
+                      className="w-full py-3 bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-xl font-bold hover:from-indigo-700 hover:to-purple-700 transition-all flex items-center justify-center gap-2 shadow-lg shadow-indigo-600/20"
+                    >
+                      <Brain size={18} />
+                      {t('dashboard.openLearningNotebook')}
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -259,10 +529,10 @@ export default function DashboardPage({ questions = [] }) {
                     <button
                       type="button"
                       onClick={() => setShowAiSuggestionsInfo(true)}
-                      className="w-9 h-9 rounded-xl border-2 border-slate-200 hover:border-purple-300 hover:bg-purple-50 transition-all flex items-center justify-center font-black text-purple-700 hover:scale-110 active:scale-105"
+                      className="w-9 h-9 rounded-full border-2 border-slate-200 hover:border-purple-300 hover:bg-purple-50 hover:scale-110 hover:shadow-md active:scale-95 transition-all duration-200 flex items-center justify-center text-purple-700"
                       title={t('dashboard.howThisWorks')}
                     >
-                      ?
+                      <Info size={18} strokeWidth={2.5} />
                     </button>
                   </div>
 
@@ -327,43 +597,11 @@ export default function DashboardPage({ questions = [] }) {
             </div>
           </div>
 
-          <div className="lg:col-span-6">
-            <div className="h-full bento-glass bento-glass-hover">
-              <div className="bento-glass-content p-6">
-                <div className="flex items-center justify-between gap-3 mb-4">
-                  <h3 className="text-lg font-black text-slate-800">{t('dashboard.quickStatsTitle')}</h3>
-                  <button
-                    type="button"
-                    onClick={() => setShowQuickStatsInfo(true)}
-                    className="w-9 h-9 rounded-xl border-2 border-slate-200 hover:border-indigo-300 hover:bg-indigo-50 transition-all flex items-center justify-center font-black text-indigo-700 hover:scale-110 active:scale-105"
-                    title={t('dashboard.howThisWorks')}
-                  >
-                    ?
-                  </button>
-                </div>
-                <div className="space-y-3">
-                  <div className="flex justify-between items-center p-3 bg-indigo-50 rounded-lg">
-                    <span className="text-sm font-bold text-slate-700">{t('dashboard.quickStatsStudyStreakTitle')}</span>
-                    <span className="text-2xl font-black text-indigo-600">🔥</span>
-                  </div>
-                  <div className="flex justify-between items-center p-3 bg-green-50 rounded-lg">
-                    <span className="text-sm font-bold text-slate-700">{t('dashboard.quickStatsTopicsMasteredTitle')}</span>
-                    <span className="text-2xl font-black text-green-600">✓</span>
-                  </div>
-                  <div className="flex justify-between items-center p-3 bg-amber-50 rounded-lg">
-                    <span className="text-sm font-bold text-slate-700">{t('dashboard.quickStatsInProgressTitle')}</span>
-                    <span className="text-2xl font-black text-amber-600">→</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-
           <div className="lg:col-span-12">
             <div className="h-full bento-glass bento-glass-hover">
               <div className="bento-glass-content p-6">
                 <CompactAttemptsList
-                  attempts={attempts}
+                  attempts={(attempts || []).slice(0, 10)}
                   onSelectAttempt={setSelectedAttempt}
                   loading={loading}
                   embedded
@@ -373,57 +611,42 @@ export default function DashboardPage({ questions = [] }) {
           </div>
         </div>
 
-        {showQuickStatsInfo && (
-          <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setShowQuickStatsInfo(false)}>
-            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xl border-2 border-slate-200" onClick={(e) => e.stopPropagation()}>
-              <div className="p-5 border-b-2 border-slate-200 flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Info size={20} className="text-indigo-700" />
-                  <h3 className="text-lg font-black text-slate-800">{t('dashboard.quickStatsMechanismTitle')}</h3>
-                </div>
-                <button type="button" onClick={() => setShowQuickStatsInfo(false)} className="p-2 hover:bg-slate-100 rounded-xl transition-all" aria-label={t('common.close')}>
-                  <X size={20} />
-                </button>
-              </div>
-              <div className="p-5 space-y-3 text-sm text-slate-700">
-                <p className="font-medium">
-                  {t('dashboard.quickStatsMechanismDesc')}
-                </p>
-                <div className="space-y-2">
-                  <div>
-                    <div className="font-black text-slate-800">{t('dashboard.quickStatsStudyStreakTitle')}</div>
-                    <div className="text-slate-600 font-medium">{t('dashboard.quickStatsStudyStreakDesc')}</div>
-                  </div>
-                  <div>
-                    <div className="font-black text-slate-800">{t('dashboard.quickStatsTopicsMasteredTitle')}</div>
-                    <div className="text-slate-600 font-medium">{t('dashboard.quickStatsTopicsMasteredDesc')}</div>
-                  </div>
-                  <div>
-                    <div className="font-black text-slate-800">{t('dashboard.quickStatsInProgressTitle')}</div>
-                    <div className="text-slate-600 font-medium">{t('dashboard.quickStatsInProgressDesc')}</div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
+        {null}
 
         {showAiSuggestionsInfo && (
           <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setShowAiSuggestionsInfo(false)}>
-            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xl border-2 border-slate-200" onClick={(e) => e.stopPropagation()}>
-              <div className="p-5 border-b-2 border-slate-200 flex items-center justify-between">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xl border-2 border-purple-200" onClick={(e) => e.stopPropagation()}>
+              <div className="p-5 border-b-2 border-purple-200 flex items-center justify-between bg-purple-50">
                 <div className="flex items-center gap-2">
-                  <Info size={20} className="text-purple-700" />
-                  <h3 className="text-lg font-black text-slate-800">{t('dashboard.aiStudySuggestionsMechanismTitle')}</h3>
+                  <Sparkles size={20} className="text-purple-700" />
+                  <h3 className="text-lg font-black text-slate-800">{t('calendar.aiSuggestionsByTopicTitle')}</h3>
                 </div>
-                <button type="button" onClick={() => setShowAiSuggestionsInfo(false)} className="p-2 hover:bg-slate-100 rounded-xl transition-all" aria-label={t('common.close')}>
+                <button type="button" onClick={() => setShowAiSuggestionsInfo(false)} className="p-2 hover:bg-white rounded-xl transition-all" aria-label={t('common.close')}>
                   <X size={20} />
                 </button>
               </div>
-              <div className="p-5 space-y-3 text-sm text-slate-700">
-                <p className="font-medium">
-                  {t('dashboard.aiStudySuggestionsMechanismDesc')}
-                </p>
+              <div className="p-5 space-y-4">
+                <div className="p-4 rounded-xl border-2 border-purple-200 bg-purple-50">
+                  <p className="text-sm text-slate-700 leading-relaxed">
+                    {t('calendar.aiSuggestionsByTopicDesc')}
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <h4 className="font-bold text-slate-800 text-sm">{t('dashboard.aiHowGeneratesTitle')}</h4>
+                  <div className="p-3 rounded-lg bg-slate-50 border border-slate-200 text-xs text-slate-600">
+                    {t('dashboard.aiHowGeneratesDesc')}
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <h4 className="font-bold text-slate-800 text-sm">{t('dashboard.aiPriorityLevelsTitle')}</h4>
+                  <div className="flex gap-2 flex-wrap">
+                    <span className="px-2 py-1 bg-red-100 text-red-700 rounded text-xs font-bold">{t('dashboard.priorityHigh')}</span>
+                    <span className="px-2 py-1 bg-amber-100 text-amber-700 rounded text-xs font-bold">{t('dashboard.priorityMedium')}</span>
+                    <span className="px-2 py-1 bg-blue-100 text-blue-700 rounded text-xs font-bold">{t('dashboard.priorityLow')}</span>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -458,31 +681,31 @@ export default function DashboardPage({ questions = [] }) {
                   </div>
                   <div>
                     <h3 className="text-xl font-black text-slate-800">
-                      Confirm Logout
+                      {t('dashboard.confirmLogout')}
                     </h3>
                     <p className="text-sm text-slate-500">
-                      Are you sure you want to leave?
+                      {t('dashboard.areYouSureLogout')}
                     </p>
                   </div>
                 </div>
               </div>
               <div className="p-6">
                 <p className="text-slate-600 mb-6">
-                  You'll need to sign in again to access your dashboard.
+                  {t('dashboard.needSignInAgain')}
                 </p>
                 <div className="flex gap-3">
                   <button
                     onClick={() => setShowLogoutConfirm(false)}
                     className="flex-1 px-4 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold transition-all"
                   >
-                    Cancel
+                    {t('dashboard.cancel')}
                   </button>
                   <button
                     onClick={handleLogout}
                     className="flex-1 px-4 py-3 bg-rose-500 hover:bg-rose-600 text-white rounded-xl font-bold transition-all flex items-center justify-center gap-2"
                   >
                     <LogOut size={18} />
-                    Logout
+                    {t('dashboard.logout')}
                   </button>
                 </div>
               </div>

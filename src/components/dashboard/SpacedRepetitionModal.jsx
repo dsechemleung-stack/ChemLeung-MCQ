@@ -4,6 +4,7 @@ import { motion } from 'framer-motion';
 import { srsService } from '../../services/srsService';
 import { quizStorage } from '../../utils/quizStorage';
 import { useLanguage } from '../../contexts/LanguageContext';
+import { getNow } from '../../utils/timeTravel';
 
 /**
  * SpacedRepetitionModal - COMPLETE ENHANCED VERSION with SRS Service
@@ -36,14 +37,22 @@ export default function SpacedRepetitionModal({
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
   const [selectedCardIds, setSelectedCardIds] = useState(new Set());
+  const [overdueCount, setOverdueCount] = useState(0);
+
+  const MAX_DUE_CARDS_TO_LOAD = 50;
 
   // Load due cards on mount
   useEffect(() => {
     const loadDueCards = async () => {
       try {
         setIsLoading(true);
-        const cards = await srsService.getDueCards(userId);
+        const todayStr = getNow().toISOString().split('T')[0];
+        const [cards, overdue] = await Promise.all([
+          srsService.getCardsDueOnDate(userId, todayStr, { limit: MAX_DUE_CARDS_TO_LOAD }),
+          srsService.getOverdueCount(userId, getNow())
+        ]);
         setDueCards(cards);
+        setOverdueCount(overdue);
         
         // Auto-select all cards initially for batch mode
         setSelectedCardIds(new Set(cards.map(card => card.id)));
@@ -276,6 +285,11 @@ export default function SpacedRepetitionModal({
             <p className="text-sm text-slate-600 mt-1">
               {tf('srs.questionsNeedReviewCount', { count: availableReviews.length })}
             </p>
+            {overdueCount > 0 && (
+              <p className="text-xs text-red-600 font-bold mt-1">
+                {tf('srs.overdueReviewsNotShown', { count: overdueCount, plural: overdueCount > 1 ? 's' : '' })}
+              </p>
+            )}
           </div>
           <button onClick={onClose} className="p-2 hover:bg-white/50 rounded-lg transition-all">
             <X size={24} />

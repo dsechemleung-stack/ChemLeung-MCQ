@@ -12,6 +12,10 @@ import { quizService } from '../services/quizService';
 import { quizStorage } from '../utils/quizStorage';
 import { useFloating, offset, flip, shift, autoUpdate } from '@floating-ui/react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import { db } from '../firebase/config';
+import { collection, getDocs, limit, orderBy, query, startAfter, where } from 'firebase/firestore';
+import { formatHKDateKey } from '../utils/hkTime';
+import { getNow } from '../utils/timeTravel';
 import {
   BookOpen, ArrowLeft, Play, AlertCircle, Target,
   CheckCircle, Filter, ChevronDown, Calendar, Hash, Tag,
@@ -42,6 +46,58 @@ const MASTERY_LEVELS = {
   progressing:{ labelKey: 'notebook.masteryDeveloping', color: 'amber' },
   near:       { labelKey: 'notebook.masteryNear', color: 'green' },
 };
+
+function buildMistakeIndexQueryConstraints({ userId, datePeriod, selectedTopics, selectedSubtopics, cursor, pageSize }) {
+  const now = getNow();
+  const weekAgo = new Date(now);
+  weekAgo.setDate(weekAgo.getDate() - 7);
+  const monthAgo = new Date(now);
+  monthAgo.setMonth(monthAgo.getMonth() - 1);
+
+  const base = [collection(db, 'users', userId, 'mistakes')];
+
+  if (datePeriod === 'week') {
+    base.push(where('lastWrongAt', '>=', weekAgo.toISOString()));
+  } else if (datePeriod === 'month') {
+    base.push(where('lastWrongAt', '>=', monthAgo.toISOString()));
+  }
+
+  const topics = (Array.isArray(selectedTopics) ? selectedTopics : []).filter(Boolean);
+  const subs = (Array.isArray(selectedSubtopics) ? selectedSubtopics : []).filter(Boolean);
+
+  const canUseTopicsIn = topics.length >= 2 && topics.length <= 10;
+  const canUseSubtopicsIn = subs.length >= 2 && subs.length <= 10;
+
+  // Firestore limitation: you can't combine two different "in" filters in one query.
+  // We prioritize Topic server-side; Subtopic may fall back to client-side filtering.
+  if (topics.length === 1) {
+    base.push(where('Topic', '==', topics[0]));
+  } else if (canUseTopicsIn) {
+    base.push(where('Topic', 'in', topics));
+  }
+
+  const topicUsesIn = canUseTopicsIn;
+  const topicUsesEq = topics.length === 1;
+
+  if (subs.length === 1) {
+    base.push(where('Subtopic', '==', subs[0]));
+  } else if (canUseSubtopicsIn && !topicUsesIn) {
+    base.push(where('Subtopic', 'in', subs));
+  }
+
+  base.push(orderBy('lastWrongAt', 'desc'));
+  if (cursor) base.push(startAfter(cursor));
+  base.push(limit(pageSize));
+
+  return {
+    q: query(...base),
+    // Anything not encoded in the query needs a client-side filter.
+    needsClientTopicFilter: topics.length > 10,
+    needsClientSubtopicFilter: (subs.length > 10) || (canUseSubtopicsIn && topicUsesIn) || (!topicUsesEq && subs.length > 0 && !canUseSubtopicsIn),
+    topics,
+    subs,
+  };
+}
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // HELPER FUNCTIONS
@@ -356,6 +412,73 @@ function FullQuestionModal({ mistake, errorTag, onTag, onClose }) {
                 })}
               </div>
             </div>
+          </div>
+        </div>
+      </motion.div>
+    </div>
+  );
+}
+
+
+
+function InfoIconButton({ title, body, onOpenModal, hoverCapable }) {
+  const [open, setOpen] = useState(false);
+
+  const showTooltip = hoverCapable && open;
+
+  return (
+    <span
+      className="relative inline-flex"
+      onMouseEnter={() => hoverCapable && setOpen(true)}
+      onMouseLeave={() => hoverCapable && setOpen(false)}
+    >
+      <button
+        type="button"
+        onClick={() => onOpenModal?.()}
+        className="w-5 h-5 rounded-full border border-amber-300 bg-amber-50 text-amber-700 font-black text-[11px] leading-none flex items-center justify-center hover:bg-amber-100 transition-all"
+        aria-label={title}
+        title={hoverCapable ? title : undefined}
+      >
+        !
+      </button>
+
+      {showTooltip && (
+        <div className="absolute left-0 top-full mt-2 w-64 max-w-[calc(100vw-2rem)] bg-white border border-slate-200 shadow-lg rounded-xl p-3 text-xs text-slate-700 z-[90] break-words">
+          <div className="font-black text-slate-800 mb-1">{title}</div>
+          <div className="text-slate-600 leading-relaxed">{body}</div>
+        </div>
+      )}
+    </span>
+  );
+}
+
+function FilterInfoModal({ onClose }) {
+  const { t } = useLanguage();
+  return (
+    <div className="fixed inset-0 bg-black/60 z-[100] p-4 flex items-center justify-center">
+      <motion.div
+        initial={{ opacity: 0, scale: 0.95 }}
+        animate={{ opacity: 1, scale: 1 }}
+        exit={{ opacity: 0, scale: 0.95 }}
+        className="bg-white w-11/12 max-w-md max-h-[85vh] overflow-y-auto rounded-2xl shadow-xl border border-slate-200"
+      >
+        <div className="p-6">
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex-1">
+              <div className="text-lg font-black text-slate-800">
+                {t('notebook.filterInfoTitle')}
+              </div>
+              <div className="text-sm text-slate-600 mt-2 leading-relaxed">
+                {t('notebook.filterInfoBody')}
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-3 py-2 rounded-lg bg-slate-100 text-slate-700 font-black hover:bg-slate-200 transition-all flex-shrink-0"
+            >
+              {t('notebook.close')}
+            </button>
           </div>
         </div>
       </motion.div>
@@ -797,9 +920,13 @@ function RetentionDashboard({ cards = [], attempts = [] }) {
 /**
  * LIST VIEW: Compact expandable rows
  */
-function ListViewDeck({ mistakes, errorTags, onTag, selectedIds, onToggleSelect, onToggleSelectAll, allSelected, onViewFull }) {
+function ListViewDeck({ mistakes, errorTags, onTag, selectedIds, onToggleSelect, onToggleSelectAll, allSelected, onViewFull, moreHint }) {
   const { t } = useLanguage();
   const [expandedId, setExpandedId] = useState(null);
+  const selectedVisibleCount = (mistakes || []).reduce(
+    (acc, m) => (selectedIds.has(m.ID) ? acc + 1 : acc),
+    0
+  );
   
   return (
     <div className="space-y-2">
@@ -812,7 +939,8 @@ function ListViewDeck({ mistakes, errorTags, onTag, selectedIds, onToggleSelect,
           className="w-4 h-4 rounded cursor-pointer"
         />
         <span className="text-sm font-bold text-slate-700">
-          {t('notebook.selectAll')} ({selectedIds.size}/{mistakes.length})
+          {t('notebook.selectAll')} ({selectedVisibleCount}/{mistakes.length})
+          {moreHint ? <span className="text-slate-500 font-semibold"> {moreHint}</span> : null}
         </span>
       </div>
       
@@ -1030,10 +1158,15 @@ export default function MistakeNotebookPage({ questions = [] }) {
   
   // Core state
   const [mistakes, setMistakes] = useState([]);
+  const [facetMistakeRows, setFacetMistakeRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [srsCards, setSrsCards] = useState([]);
   const [reviewAttempts, setReviewAttempts] = useState([]);
+  const [mistakeIndexRows, setMistakeIndexRows] = useState([]);
+  const [mistakeIndexHasMore, setMistakeIndexHasMore] = useState(false);
+  const [mistakeIndexCursor, setMistakeIndexCursor] = useState(null);
+  const [loadingMoreMistakes, setLoadingMoreMistakes] = useState(false);
   const [errorTags, setErrorTags] = useState(() =>
     JSON.parse(localStorage.getItem('mistake_error_tags') || '{}')
   );
@@ -1055,88 +1188,233 @@ export default function MistakeNotebookPage({ questions = [] }) {
   
   // UI state
   const [activeTab, setActiveTab] = useState('deck');
+  const [archiveSubTab, setArchiveSubTab] = useState('mastery');
+  const [hoverCapable, setHoverCapable] = useState(true);
   const [viewMode, setViewMode] = useState('list');
   const [selectedMistakeIds, setSelectedMistakeIds] = useState(new Set());
   const [fullViewMistake, setFullViewMistake] = useState(null);
+  const [showInfoModal, setShowInfoModal] = useState(false);
+  const [showHelpPanel, setShowHelpPanel] = useState(false);
+  const [filterInfoOpen, setFilterInfoOpen] = useState(false);
+  const [archivedLoaded, setArchivedLoaded] = useState(false);
   
   // Load data
   useEffect(() => { loadMistakes(); }, [currentUser]);
+
+  useEffect(() => {
+    if (!currentUser) return;
+    loadFacetMistakes();
+  }, [currentUser, datePeriod]);
+
+  // Reset pagination when date filter changes
+  useEffect(() => {
+    setMistakeIndexRows([]);
+    setMistakeIndexHasMore(false);
+    setMistakeIndexCursor(null);
+    if (currentUser) loadMistakes();
+  }, [datePeriod]);
+
+  // Reset pagination when topic/subtopic filters change (server-side filtered query)
+  useEffect(() => {
+    setMistakeIndexRows([]);
+    setMistakeIndexHasMore(false);
+    setMistakeIndexCursor(null);
+    if (currentUser) loadMistakes();
+  }, [selectedTopics, selectedSubtopics]);
+
+  // Lazy-load archived cards only when Archive tab is opened
+  useEffect(() => {
+    if (!currentUser) return;
+    if (activeTab !== 'archive') return;
+    if (archivedLoaded) return;
+
+    const loadArchived = async () => {
+      try {
+        const questionMap = new Map((questions || []).map(q => [q.ID, q]));
+        const archivedCards = await srsService.getArchivedCards(currentUser.uid);
+        const archivedByQuestionId = {};
+
+        (archivedCards || []).forEach((c) => {
+          const questionData = questionMap.get(c.questionId) || {};
+          archivedByQuestionId[c.questionId] = {
+            ...c,
+            ...questionData,
+            ID: c.questionId,
+            archivedAt: c.archivedAt,
+            archiveReason: c.archiveReason || 'unknown'
+          };
+        });
+
+        setArchivedMistakes(archivedByQuestionId);
+        setArchivedLoaded(true);
+      } catch (e) {
+        console.error('Error loading archived cards:', e);
+      }
+    };
+
+    loadArchived();
+  }, [activeTab, archivedLoaded, currentUser, questions]);
+
+  useEffect(() => {
+    if (activeTab !== 'archive') return;
+    setArchiveSubTab('mastery');
+  }, [activeTab]);
+  
+  // Auto-archive overdue cards older than 14 days
+  useEffect(() => {
+    if (!currentUser) return;
+
+    const runArchive = async () => {
+      try {
+        const archivedCount = await srsService.archiveOverdueCards(currentUser.uid);
+        if (archivedCount > 0) {
+          console.log(`🗄️ Auto-archived ${archivedCount} overdue cards`);
+          // Reload data to refresh the archive
+          loadMistakes();
+        }
+      } catch (error) {
+        console.error('Error auto-archiving overdue cards:', error);
+      }
+    };
+
+    runArchive();
+  }, [currentUser]);
   
   async function loadMistakes() {
     if (!currentUser) { setLoading(false); return; }
     try {
       setLoading(true);
       setError(null);
-      const [cards, srsAttempts, quizAttempts] = await Promise.all([
-        srsService.getAllCards(currentUser.uid),
+
+      const [srsAttempts, dueCards] = await Promise.all([
         srsService.getRecentReviewAttempts(currentUser.uid, 30),
-        quizService.getUserAttempts(currentUser.uid, 200)
+        srsService.getDueCards(currentUser.uid, getNow(), { limit: 200 })
       ]);
 
-      setSrsCards(cards);
+      const now = getNow();
+      const weekAgo = new Date(now);
+      weekAgo.setDate(weekAgo.getDate() - 7);
+      const monthAgo = new Date(now);
+      monthAgo.setMonth(monthAgo.getMonth() - 1);
+
+      const pageSize = 40;
+      const firstBuilt = buildMistakeIndexQueryConstraints({
+        userId: currentUser.uid,
+        datePeriod,
+        selectedTopics,
+        selectedSubtopics,
+        cursor: null,
+        pageSize,
+      });
+
+      let rows = [];
+      let cursor = null;
+      let hasMore = false;
+
+      const needsClientFiltering =
+        (firstBuilt.needsClientTopicFilter && firstBuilt.topics.length > 0) ||
+        (firstBuilt.needsClientSubtopicFilter && firstBuilt.subs.length > 0);
+
+      if (!needsClientFiltering) {
+        const snap = await getDocs(firstBuilt.q);
+        rows = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+        cursor = snap.docs.length > 0 ? snap.docs[snap.docs.length - 1] : null;
+        hasMore = snap.docs.length === pageSize;
+      } else {
+        // If we must filter client-side, a single Firestore page can miss matches.
+        // Over-fetch a bounded number of pages until we have enough matching rows.
+        const maxPages = 6;
+        let pagesFetched = 0;
+        let fetchCursor = null;
+        let lastSnapSize = 0;
+        const topics = firstBuilt.topics;
+        const subs = firstBuilt.subs;
+
+        while (pagesFetched < maxPages && rows.length < pageSize) {
+          const built = buildMistakeIndexQueryConstraints({
+            userId: currentUser.uid,
+            datePeriod,
+            selectedTopics,
+            selectedSubtopics,
+            cursor: fetchCursor,
+            pageSize,
+          });
+
+          const snap = await getDocs(built.q);
+          lastSnapSize = snap.docs.length;
+          let pageRows = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+
+          if (built.needsClientTopicFilter && topics.length > 0) {
+            pageRows = pageRows.filter((r) => topics.includes(r.Topic));
+          }
+          if (built.needsClientSubtopicFilter && subs.length > 0) {
+            pageRows = pageRows.filter((r) => subs.includes(r.Subtopic));
+          }
+
+          rows.push(...pageRows);
+
+          fetchCursor = snap.docs.length > 0 ? snap.docs[snap.docs.length - 1] : fetchCursor;
+          pagesFetched += 1;
+
+          if (lastSnapSize < pageSize) {
+            break;
+          }
+        }
+
+        cursor = fetchCursor;
+        hasMore = lastSnapSize === pageSize;
+        rows = rows.slice(0, pageSize);
+      }
+
+      setMistakeIndexRows(rows);
+      setMistakeIndexCursor(cursor);
+      setMistakeIndexHasMore(hasMore);
+
       setReviewAttempts(srsAttempts);
 
       const questionMap = new Map((questions || []).map(q => [q.ID, q]));
-      const cardByQuestionId = new Map((cards || []).map(c => [c.questionId, c]));
+      const dueByQuestionId = new Map((dueCards || []).map((c) => [String(c.questionId), c]));
 
-      const archivedByQuestionId = {};
-      (cards || []).filter(c => c.isActive === false).forEach(c => {
-        archivedByQuestionId[c.questionId] = { ...c };
-      });
-      setArchivedMistakes(archivedByQuestionId);
+      const deckAll = (rows || [])
+        .map((row) => {
+          const qid = row?.questionId ?? row?.ID ?? row?.id;
+          const questionId = qid ? String(qid) : null;
+          if (!questionId) return null;
 
-      const incorrectMap = new Map();
-      (quizAttempts || []).forEach((attempt) => {
-        const qs = attempt?.questions || [];
-        const ans = attempt?.answers || {};
-        if (!Array.isArray(qs) || !ans) return;
+          const q = questionMap.get(Number.isFinite(Number(questionId)) ? Number(questionId) : questionId) || questionMap.get(questionId);
+          const dueCard = dueByQuestionId.get(questionId);
 
-        qs.forEach((q) => {
-          const qid = q?.ID;
-          if (!qid) return;
-          const userAnswer = ans[qid];
-          if (!userAnswer) return;
-          const isCorrect = userAnswer === q.CorrectOption;
-          if (isCorrect) return;
-
-          if (!incorrectMap.has(qid)) {
-            incorrectMap.set(qid, {
-              ...(questionMap.get(qid) || q),
-              ID: qid,
-              attemptCount: 1,
-              lastAttempted: attempt.timestamp || attempt.completedAt || attempt.createdAt || new Date().toISOString(),
-              userAnswer,
-            });
-            return;
-          }
-
-          const existing = incorrectMap.get(qid);
-          existing.attemptCount += 1;
-          const ts = attempt.timestamp || attempt.completedAt || attempt.createdAt;
-          if (ts && new Date(ts) > new Date(existing.lastAttempted)) {
-            existing.lastAttempted = ts;
-            existing.userAnswer = userAnswer;
-          }
-        });
-      });
-
-      const deck = Array.from(incorrectMap.values())
-        .map((m) => {
-          const card = cardByQuestionId.get(m.ID);
           return {
-            ...m,
-            ...(card || {}),
-            questionId: card?.questionId || m.ID,
-            lastReviewedAt: card?.lastReviewedAt || null,
-            repetitionCount: card?.repetitionCount || 0,
-            improvementCount: card?.repetitionCount || 0,
-            status: card?.status || 'new',
-            isActive: card?.isActive ?? true,
+            ...(q || {}),
+            ...row,
+            ID: q?.ID ?? row?.ID ?? questionId,
+            questionId,
+            Topic: q?.Topic ?? row?.Topic ?? null,
+            Subtopic: q?.Subtopic ?? row?.Subtopic ?? null,
+            attemptCount: Number(row?.attemptCount || 0),
+            lastAttempted: row?.lastAttempted || row?.lastWrongAt || row?.updatedAt || null,
+            userAnswer: row?.lastUserAnswer ?? null,
+            ...(dueCard || {}),
+            repetitionCount: (dueCard?.repetitionCount ?? row?.repetitionCount ?? 0),
+            improvementCount: (dueCard?.repetitionCount ?? row?.repetitionCount ?? 0),
+            status: dueCard?.status ?? row?.status ?? 'new',
+            isActive: dueCard?.isActive ?? row?.isActive ?? true,
           };
         })
-        .sort((a, b) => calcPriority(b) - calcPriority(a));
+        .filter(Boolean)
+        .sort((a, b) => {
+          const aDue = !!(a?.nextReviewDate && a?.nextReviewDate <= formatHKDateKey(getNow()) && a?.isActive !== false);
+          const bDue = !!(b?.nextReviewDate && b?.nextReviewDate <= formatHKDateKey(getNow()) && b?.isActive !== false);
+          if (aDue !== bDue) return aDue ? -1 : 1;
+          return calcPriority(b) - calcPriority(a);
+        });
 
-      setMistakes(deck);
+      setMistakes(deckAll);
+      setSrsCards(dueCards || []);
+
+      // Reset archived cache; will lazy-load when opening Archive tab
+      setArchivedMistakes({});
+      setArchivedLoaded(false);
       
     } catch (err) {
       console.error(err);
@@ -1144,6 +1422,162 @@ export default function MistakeNotebookPage({ questions = [] }) {
     } finally {
       setLoading(false);
     }
+  }
+
+  async function loadFacetMistakes() {
+    if (!currentUser?.uid) return;
+    try {
+      const now = getNow();
+      const weekAgo = new Date(now);
+      weekAgo.setDate(weekAgo.getDate() - 7);
+      const monthAgo = new Date(now);
+      monthAgo.setMonth(monthAgo.getMonth() - 1);
+
+      const base = [collection(db, 'users', currentUser.uid, 'mistakes')];
+      if (datePeriod === 'week') {
+        base.push(where('lastWrongAt', '>=', weekAgo.toISOString()));
+      } else if (datePeriod === 'month') {
+        base.push(where('lastWrongAt', '>=', monthAgo.toISOString()));
+      }
+      base.push(orderBy('lastWrongAt', 'desc'));
+      base.push(limit(200));
+
+      const snap = await getDocs(query(...base));
+      setFacetMistakeRows(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+    } catch (e) {
+      console.error('Error loading facet mistakes:', e);
+    }
+  }
+
+  async function loadMoreMistakes() {
+    if (!currentUser?.uid) return;
+    if (loadingMoreMistakes) return;
+    if (!mistakeIndexHasMore) return;
+    if (!mistakeIndexCursor) return;
+
+    setLoadingMoreMistakes(true);
+    try {
+      const now = getNow();
+      const weekAgo = new Date(now);
+      weekAgo.setDate(weekAgo.getDate() - 7);
+      const monthAgo = new Date(now);
+      monthAgo.setMonth(monthAgo.getMonth() - 1);
+
+      const pageSize = 40;
+      const firstBuilt = buildMistakeIndexQueryConstraints({
+        userId: currentUser.uid,
+        datePeriod,
+        selectedTopics,
+        selectedSubtopics,
+        cursor: mistakeIndexCursor,
+        pageSize,
+      });
+
+      let fetchedRows = [];
+      let nextCursor = mistakeIndexCursor;
+      let hasMore = false;
+
+      const needsClientFiltering =
+        (firstBuilt.needsClientTopicFilter && firstBuilt.topics.length > 0) ||
+        (firstBuilt.needsClientSubtopicFilter && firstBuilt.subs.length > 0);
+
+      if (!needsClientFiltering) {
+        const snap = await getDocs(firstBuilt.q);
+        fetchedRows = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+        nextCursor = snap.docs.length > 0 ? snap.docs[snap.docs.length - 1] : mistakeIndexCursor;
+        hasMore = snap.docs.length === pageSize;
+      } else {
+        const maxPages = 6;
+        let pagesFetched = 0;
+        let fetchCursor = mistakeIndexCursor;
+        let lastSnapSize = 0;
+        const topics = firstBuilt.topics;
+        const subs = firstBuilt.subs;
+
+        while (pagesFetched < maxPages && fetchedRows.length < pageSize) {
+          const built = buildMistakeIndexQueryConstraints({
+            userId: currentUser.uid,
+            datePeriod,
+            selectedTopics,
+            selectedSubtopics,
+            cursor: fetchCursor,
+            pageSize,
+          });
+
+          const snap = await getDocs(built.q);
+          lastSnapSize = snap.docs.length;
+          let pageRows = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+
+          if (built.needsClientTopicFilter && topics.length > 0) {
+            pageRows = pageRows.filter((r) => topics.includes(r.Topic));
+          }
+          if (built.needsClientSubtopicFilter && subs.length > 0) {
+            pageRows = pageRows.filter((r) => subs.includes(r.Subtopic));
+          }
+
+          fetchedRows.push(...pageRows);
+
+          fetchCursor = snap.docs.length > 0 ? snap.docs[snap.docs.length - 1] : fetchCursor;
+          pagesFetched += 1;
+
+          if (lastSnapSize < pageSize) {
+            break;
+          }
+        }
+
+        fetchedRows = fetchedRows.slice(0, pageSize);
+        nextCursor = fetchCursor;
+        hasMore = lastSnapSize === pageSize;
+      }
+
+      const mergedRows = [...mistakeIndexRows, ...fetchedRows];
+      setMistakeIndexRows(mergedRows);
+      setMistakeIndexCursor(nextCursor);
+      setMistakeIndexHasMore(hasMore);
+
+      const questionMap = new Map((questions || []).map(q => [q.ID, q]));
+      const dueByQuestionId = new Map((srsCards || []).map((c) => [String(c.questionId), c]));
+
+      const deckAll = (mergedRows || [])
+        .map((row) => {
+          const qid = row?.questionId ?? row?.ID ?? row?.id;
+          const questionId = qid ? String(qid) : null;
+          if (!questionId) return null;
+
+          const q = questionMap.get(Number.isFinite(Number(questionId)) ? Number(questionId) : questionId) || questionMap.get(questionId);
+          const dueCard = dueByQuestionId.get(questionId);
+
+          return {
+            ...(q || {}),
+            ...row,
+            ID: q?.ID ?? row?.ID ?? questionId,
+            questionId,
+            Topic: q?.Topic ?? row?.Topic ?? null,
+            Subtopic: q?.Subtopic ?? row?.Subtopic ?? null,
+            attemptCount: Number(row?.attemptCount || 0),
+            lastAttempted: row?.lastAttempted || row?.lastWrongAt || row?.updatedAt || null,
+            userAnswer: row?.lastUserAnswer ?? null,
+            ...(dueCard || {}),
+            repetitionCount: (dueCard?.repetitionCount ?? row?.repetitionCount ?? 0),
+            improvementCount: (dueCard?.repetitionCount ?? row?.repetitionCount ?? 0),
+            status: dueCard?.status ?? row?.status ?? 'new',
+            isActive: dueCard?.isActive ?? row?.isActive ?? true,
+          };
+        })
+        .filter(Boolean)
+        .sort((a, b) => {
+          const aDue = !!(a?.nextReviewDate && a?.nextReviewDate <= formatHKDateKey(getNow()) && a?.isActive !== false);
+          const bDue = !!(b?.nextReviewDate && b?.nextReviewDate <= formatHKDateKey(getNow()) && b?.isActive !== false);
+          if (aDue !== bDue) return aDue ? -1 : 1;
+          return calcPriority(b) - calcPriority(a);
+        });
+
+      setMistakes(deckAll);
+    } catch (e) {
+      console.error('Error loading more mistakes:', e);
+    }
+
+    setLoadingMoreMistakes(false);
   }
   
   // Persistence effects
@@ -1157,8 +1591,8 @@ export default function MistakeNotebookPage({ questions = [] }) {
   
   // Computed values
   const allTopics = useMemo(
-    () => [...new Set(mistakes.map((m) => m.Topic).filter(Boolean))].sort(),
-    [mistakes]
+    () => [...new Set((facetMistakeRows || []).map((m) => m.Topic).filter(Boolean))].sort(),
+    [facetMistakeRows]
   );
 
   const topicErrorDensity = useMemo(() => {
@@ -1187,18 +1621,35 @@ export default function MistakeNotebookPage({ questions = [] }) {
       })
       .sort((a, b) => b.density - a.density);
   }, [mistakes, questions]);
+
+  useEffect(() => {
+    try {
+      const top = (topicErrorDensity || []).slice(0, 4);
+      localStorage.setItem('dashboard_topics_to_focus_cache_v1', JSON.stringify({
+        updatedAt: new Date().toISOString(),
+        top
+      }));
+    } catch {
+      // ignore
+    }
+  }, [topicErrorDensity]);
   
   const availableSubtopics = useMemo(() => {
+    const baseRows = facetMistakeRows || [];
     const base = selectedTopics.length > 0
-      ? mistakes.filter((m) => selectedTopics.includes(m.Topic))
-      : mistakes;
+      ? baseRows.filter((m) => selectedTopics.includes(m.Topic))
+      : baseRows;
     return [...new Set(base.map((m) => m.Subtopic).filter(Boolean))].sort();
-  }, [mistakes, selectedTopics]);
+  }, [facetMistakeRows, selectedTopics]);
   
   useEffect(() => {
-    setSelectedSubtopics((prev) =>
-      prev.filter((s) => availableSubtopics.includes(s))
-    );
+    setSelectedSubtopics((prev) => {
+      const next = prev.filter((s) => availableSubtopics.includes(s));
+      if (next.length === prev.length && next.every((v, i) => v === prev[i])) {
+        return prev;
+      }
+      return next;
+    });
   }, [availableSubtopics]);
   
   const filteredMistakes = useMemo(() => {
@@ -1228,8 +1679,77 @@ export default function MistakeNotebookPage({ questions = [] }) {
       });
     }
     
+    const noFilters =
+      datePeriod === 'all' &&
+      selectedTopics.length === 0 &&
+      selectedSubtopics.length === 0 &&
+      selectedMasteryLevels.length === 0;
+
+    // Allow Load More to increase visible count beyond 40
+    if (noFilters && !mistakeIndexHasMore && mistakeIndexRows.length <= 40) {
+      return result.slice(0, 40);
+    }
+
     return result;
-  }, [mistakes, datePeriod, selectedTopics, selectedSubtopics, selectedMasteryLevels]);
+  }, [mistakes, datePeriod, selectedTopics, selectedSubtopics, selectedMasteryLevels, mistakeIndexHasMore, mistakeIndexRows.length]);
+
+  const facetFilteredCount = useMemo(() => {
+    let result = [...(facetMistakeRows || [])];
+    if (selectedTopics.length > 0) {
+      result = result.filter((m) => selectedTopics.includes(m.Topic));
+    }
+    if (selectedSubtopics.length > 0) {
+      result = result.filter((m) => selectedSubtopics.includes(m.Subtopic));
+    }
+    if (selectedMasteryLevels.length > 0) {
+      result = result.filter((m) => selectedMasteryLevels.some((lvl) => getSrsBucket(m) === lvl));
+    }
+    return result.length;
+  }, [facetMistakeRows, selectedTopics, selectedSubtopics, selectedMasteryLevels]);
+
+  // Compute whether current filters force client-side search across all matches
+  const needsClientSearch = useMemo(() => {
+    const built = buildMistakeIndexQueryConstraints({
+      userId: currentUser?.uid,
+      datePeriod,
+      selectedTopics,
+      selectedSubtopics,
+      cursor: null,
+      pageSize: 40,
+    });
+    return (built.needsClientTopicFilter && built.topics.length > 0) ||
+           (built.needsClientSubtopicFilter && built.subs.length > 0);
+  }, [currentUser?.uid, datePeriod, selectedTopics, selectedSubtopics]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
+    const mql = window.matchMedia('(hover: hover) and (pointer: fine)');
+    const onChange = (e) => setHoverCapable(!!e.matches);
+    setHoverCapable(!!mql.matches);
+    if (typeof mql.addEventListener === 'function') {
+      mql.addEventListener('change', onChange);
+      return () => mql.removeEventListener('change', onChange);
+    }
+    mql.addListener(onChange);
+    return () => mql.removeListener(onChange);
+  }, []);
+
+  const moreHint = useMemo(() => {
+    const hiddenLowerBound = Math.max(0, facetFilteredCount - (filteredMistakes?.length || 0));
+    if (hiddenLowerBound > 0) return `(+${hiddenLowerBound} more…)`;
+    if (mistakeIndexHasMore) return '(more…)';
+    return '';
+  }, [facetFilteredCount, filteredMistakes, mistakeIndexHasMore]);
+
+  useEffect(() => {
+    setSelectedMistakeIds((prev) => {
+      if (!prev || prev.size === 0) return prev;
+      const allowed = new Set((filteredMistakes || []).map((m) => m.ID));
+      const next = new Set([...prev].filter((id) => allowed.has(id)));
+      if (next.size === prev.size) return prev;
+      return next;
+    });
+  }, [filteredMistakes]);
   
   const practiceCount =
     questionCount === 'All'
@@ -1252,6 +1772,27 @@ export default function MistakeNotebookPage({ questions = [] }) {
       return next;
     });
   }, []);
+  
+  const handleRestoreCard = async (questionId) => {
+    if (!currentUser) return;
+    
+    try {
+      // Find the archived card for this question
+      const archivedCard = Object.values(archivedMistakes).find(card => card.questionId === questionId || card.ID === questionId);
+      if (!archivedCard?.id) {
+        console.error('Could not find archived card for question:', questionId);
+        return;
+      }
+      
+      await srsService.restoreArchivedCard(archivedCard.id);
+      console.log('♻️ Restored card:', questionId);
+      
+      // Reload data to refresh the lists
+      loadMistakes();
+    } catch (error) {
+      console.error('Error restoring card:', error);
+    }
+  };
   
   const toggleTopic = useCallback((topic) => {
     setSelectedTopics((prev) =>
@@ -1356,7 +1897,7 @@ export default function MistakeNotebookPage({ questions = [] }) {
   // ═══════════════════════════════════════════════════════════════════════════════
   
   return (
-    <div className="flex flex-col md:flex-row min-h-[calc(100dvh-4rem)] md:h-[calc(100dvh-4rem)] bg-slate-50 overflow-hidden">
+    <div className="flex flex-col md:flex-row min-h-0 bg-slate-50">
       {/* Full Question Modal */}
       <AnimatePresence>
         {fullViewMistake && (
@@ -1369,11 +1910,19 @@ export default function MistakeNotebookPage({ questions = [] }) {
         )}
       </AnimatePresence>
 
+      {/* Filter Info Modal */}
+      <AnimatePresence>
+        {filterInfoOpen && (
+          <FilterInfoModal onClose={() => setFilterInfoOpen(false)} />
+        )}
+      </AnimatePresence>
+
+      
       {/* ═══════════════════════════════════════════════════════════════════════════════
           SIDEBAR: Practice Configurator
           ═══════════════════════════════════════════════════════════════════════════════ */}
       
-      <div className="w-full md:w-80 h-auto md:h-full bg-white border-b md:border-b-0 md:border-r border-slate-200 flex flex-col overflow-hidden min-h-0">
+      <div className="w-full md:w-80 bg-white border-b md:border-b-0 md:border-r border-slate-200 flex flex-col">
         {/* Header */}
         <div className="p-3 border-b border-slate-200 flex items-center gap-2">
           <button
@@ -1390,7 +1939,7 @@ export default function MistakeNotebookPage({ questions = [] }) {
         </div>
         
         {/* Configurator */}
-        <div className="flex-1 p-3 space-y-4 overflow-y-auto min-h-0">
+        <div className="flex-1 p-3 space-y-4 overflow-y-auto">
           {/* Question Count */}
           <div>
             <label className="text-xs font-black text-slate-600 uppercase tracking-widest mb-2 flex items-center gap-1">
@@ -1475,10 +2024,16 @@ export default function MistakeNotebookPage({ questions = [] }) {
           {/* Topics */}
           {allTopics.length > 1 && (
             <div>
-              <label className="text-xs font-black text-slate-600 uppercase tracking-widest mb-2">
+              <label className="text-xs font-black text-slate-600 uppercase tracking-widest mb-2 flex items-center gap-1">
                 {t('notebook.topics')}
+                <InfoIconButton
+                  title={t('notebook.filterInfoTitle')}
+                  body={t('notebook.filterInfoBody')}
+                  onOpenModal={() => setFilterInfoOpen(true)}
+                  hoverCapable={hoverCapable}
+                />
               </label>
-              <div className="space-y-1 max-h-48 overflow-y-auto">
+              <div className="space-y-1 max-h-80 overflow-y-auto">
                 {allTopics.map((topic) => (
                   <button
                     key={topic}
@@ -1491,7 +2046,7 @@ export default function MistakeNotebookPage({ questions = [] }) {
                   >
                     {topic}
                     <span className="ml-1 opacity-70">
-                      ({mistakes.filter((m) => m.Topic === topic).length})
+                      ({facetMistakeRows.filter((m) => m.Topic === topic).length})
                     </span>
                   </button>
                 ))}
@@ -1502,10 +2057,16 @@ export default function MistakeNotebookPage({ questions = [] }) {
           {/* Subtopics */}
           {availableSubtopics.length > 1 && (
             <div>
-              <label className="text-xs font-black text-slate-600 uppercase tracking-widest mb-2">
+              <label className="text-xs font-black text-slate-600 uppercase tracking-widest mb-2 flex items-center gap-1">
                 {t('notebook.subtopics')}
+                <InfoIconButton
+                  title={t('notebook.filterInfoTitle')}
+                  body={t('notebook.filterInfoBody')}
+                  onOpenModal={() => setFilterInfoOpen(true)}
+                  hoverCapable={hoverCapable}
+                />
               </label>
-              <div className="space-y-1 max-h-48 overflow-y-auto">
+              <div className="space-y-1 max-h-80 overflow-y-auto">
                 {availableSubtopics.slice(0, 12).map((sub) => (
                   <button
                     key={sub}
@@ -1583,7 +2144,7 @@ export default function MistakeNotebookPage({ questions = [] }) {
           MAIN WORKSPACE: Tabbed Interface
           ═══════════════════════════════════════════════════════════════════════════════ */}
       
-      <div className="flex-1 flex flex-col overflow-hidden">
+      <div className="flex-1 flex flex-col">
         {/* Tab Navigation */}
         <div className="bg-white border-b border-slate-200 p-3 sm:p-4">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
@@ -1619,7 +2180,7 @@ export default function MistakeNotebookPage({ questions = [] }) {
                 }`}
               >
                 <Archive size={16} className="inline mr-2" />
-                {t('notebook.masteryArchive')} ({Object.keys(archivedMistakes).length})
+                {t('notebook.archive')} ({Object.keys(archivedMistakes).length})
               </button>
             </div>
             
@@ -1677,7 +2238,7 @@ export default function MistakeNotebookPage({ questions = [] }) {
         </div>
         
         {/* Tab Content */}
-        <div className="flex-1 overflow-y-auto p-3 sm:p-6">
+        <div className="flex-1 p-3 sm:p-6">
           <AnimatePresence mode="wait">
             {/* Tab 1: Learning Insights */}
             {activeTab === 'analytics' && mistakes.length > 0 && (
@@ -1812,24 +2373,46 @@ export default function MistakeNotebookPage({ questions = [] }) {
                       {t('notebook.tryAdjustFilters')}
                     </p>
                   </div>
-                ) : viewMode === 'list' ? (
-                  <ListViewDeck
-                    mistakes={filteredMistakes}
-                    errorTags={errorTags}
-                    onTag={handleTag}
-                    selectedIds={selectedMistakeIds}
-                    onToggleSelect={toggleMistakeSelection}
-                    onToggleSelectAll={toggleSelectAll}
-                    allSelected={selectedMistakeIds.size === filteredMistakes.length}
-                    onViewFull={setFullViewMistake}
-                  />
                 ) : (
-                  <KanbanViewDeck
-                    columns={kanbanColumns}
-                    errorTags={errorTags}
-                    onTag={handleTag}
-                    onViewFull={setFullViewMistake}
-                  />
+                  <div className="space-y-4">
+                    {viewMode === 'list' ? (
+                      <ListViewDeck
+                        mistakes={filteredMistakes}
+                        errorTags={errorTags}
+                        onTag={handleTag}
+                        selectedIds={selectedMistakeIds}
+                        onToggleSelect={toggleMistakeSelection}
+                        onToggleSelectAll={toggleSelectAll}
+                        allSelected={selectedMistakeIds.size === filteredMistakes.length}
+                        moreHint={moreHint}
+                        onViewFull={setFullViewMistake}
+                      />
+                    ) : (
+                      <KanbanDeck
+                        columns={kanbanColumns}
+                        errorTags={errorTags}
+                        onTag={handleTag}
+                        selectedIds={selectedMistakeIds}
+                        onToggleSelect={toggleMistakeSelection}
+                        onToggleSelectAll={toggleSelectAll}
+                        allSelected={selectedMistakeIds.size === filteredMistakes.length}
+                        onViewFull={setFullViewMistake}
+                      />
+                    )}
+
+                    {mistakeIndexHasMore && (
+                      <div className="flex justify-center">
+                        <button
+                          type="button"
+                          onClick={loadMoreMistakes}
+                          disabled={loadingMoreMistakes}
+                          className="px-5 py-2.5 rounded-xl border-2 border-slate-200 bg-white font-black text-slate-700 hover:bg-slate-50 transition-all disabled:opacity-50"
+                        >
+                          {loadingMoreMistakes ? 'Loading…' : 'Load more'}
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 )}
               </motion.div>
             )}
@@ -1848,13 +2431,40 @@ export default function MistakeNotebookPage({ questions = [] }) {
                     <p className="text-slate-400 text-lg mb-2 font-semibold">
                       {t('notebook.noArchivedYet')}
                     </p>
-                    <p className="text-slate-500 text-sm">
-                      {t('notebook.archiveInstructions')}
-                    </p>
+                    <div className="max-w-2xl mx-auto space-y-3">
+                      <p className="text-slate-500 text-sm">
+                        {t('notebook.archiveInstructions')}
+                      </p>
+
+                      <div className="p-4 rounded-xl border-2 bg-emerald-50 border-emerald-200 text-left">
+                        <div className="text-sm font-black text-slate-800 mb-1">
+                          {t('notebook.archiveMasteryHowTitle')}
+                        </div>
+                        <div className="text-xs text-slate-600 leading-relaxed">
+                          {t('notebook.archiveMasteryHowBody')}
+                        </div>
+                      </div>
+
+                      <div className="p-4 rounded-xl border-2 bg-amber-50 border-amber-200 text-left">
+                        <div className="text-sm font-black text-slate-800 mb-1">
+                          {t('notebook.archiveOverdueHowTitle')}
+                        </div>
+                        <div className="text-xs text-slate-600 leading-relaxed">
+                          {t('notebook.archiveOverdueHowBody')}
+                        </div>
+                      </div>
+                    </div>
                   </div>
                 ) : (
-                  <div className="space-y-3">
-                    {Object.values(archivedMistakes).map((question) => (
+                  (() => {
+                    const allArchived = Object.values(archivedMistakes);
+                    const overdueArchived = allArchived.filter((q) => q.archiveReason === 'overdue_7_days' || q.archiveReason === 'overdue_14_days');
+                    const masteryArchived = allArchived.filter((q) => q.archiveReason !== 'overdue_7_days' && q.archiveReason !== 'overdue_14_days');
+
+                    const activeList = archiveSubTab === 'overdue' ? overdueArchived : masteryArchived;
+                    const activeCount = activeList.length;
+
+                    const renderCard = (question) => (
                       <motion.div
                         key={question.ID}
                         initial={{ opacity: 0, y: 20 }}
@@ -1867,18 +2477,106 @@ export default function MistakeNotebookPage({ questions = [] }) {
                               {question.Topic}
                             </div>
                             <div className="text-xs text-green-600">{question.Subtopic}</div>
+                            {question.archiveReason && (
+                              <div className="text-xs text-amber-600 font-semibold mt-1">
+                                {question.archiveReason === 'overdue_7_days' || question.archiveReason === 'overdue_14_days' 
+                                  ? 'Auto-archived (14+ days overdue)' 
+                                  : 'Archived'}
+                              </div>
+                            )}
                           </div>
-                          <div className="text-xs text-green-600 font-bold flex items-center gap-1">
-                            <CheckCircle size={14} />
-                            {tf('notebook.masteredOn', { date: formatDate(question.archivedAt) })}
+                          <div className="text-right">
+                            <div className="text-xs text-green-600 font-bold flex items-center gap-1">
+                              <CheckCircle size={14} />
+                              {tf('notebook.masteredOn', { date: formatDate(question.archivedAt) })}
+                            </div>
+                            <button
+                              onClick={() => handleRestoreCard(question.ID)}
+                              className="mt-1 text-xs text-indigo-600 hover:text-indigo-800 font-semibold flex items-center gap-1"
+                            >
+                              <PlusCircle size={12} />
+                              Restore
+                            </button>
                           </div>
                         </div>
-                        <div className="text-sm text-green-900 font-medium">
+                        <div className="text-sm text-green-900 font-medium mb-2">
                           {question.Question?.replace(/<[^>]*>/g, '').substring(0, 100)}...
                         </div>
+                        <div className="flex items-center gap-4 text-xs text-slate-600">
+                          <span>Original attempts: {question.attemptCount || 1}</span>
+                          <span>SRS reviews: {question.repetitionCount || 0}</span>
+                          {question.interval && <span>Interval: {question.interval} days</span>}
+                        </div>
                       </motion.div>
-                    ))}
-                  </div>
+                    );
+
+                    return (
+                      <div className="space-y-6">
+                        <div className="flex items-center justify-between gap-2 flex-wrap">
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setArchiveSubTab('mastery')}
+                              className={`px-3 py-1.5 rounded-lg text-sm font-black border-2 transition-all ${
+                                archiveSubTab === 'mastery'
+                                  ? 'bg-emerald-600 text-white border-emerald-600'
+                                  : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                              }`}
+                            >
+                              {t('notebook.archiveSubtabMastery')} ({masteryArchived.length})
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setArchiveSubTab('overdue')}
+                              className={`px-3 py-1.5 rounded-lg text-sm font-black border-2 transition-all ${
+                                archiveSubTab === 'overdue'
+                                  ? 'bg-amber-500 text-white border-amber-500'
+                                  : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                              }`}
+                            >
+                              {t('notebook.archiveSubtabOverdue')} ({overdueArchived.length})
+                            </button>
+                          </div>
+
+                          <div className="text-xs text-slate-500 font-semibold">
+                            {tf('notebook.archiveSubtabCount', { count: activeCount })}
+                          </div>
+                        </div>
+
+                        <div className={`p-4 rounded-xl border-2 ${archiveSubTab === 'overdue' ? 'bg-amber-50 border-amber-200' : 'bg-emerald-50 border-emerald-200'}`}>
+                          <div className="text-sm font-black text-slate-800 mb-1">
+                            {archiveSubTab === 'overdue'
+                              ? t('notebook.archiveOverdueHowTitle')
+                              : t('notebook.archiveMasteryHowTitle')}
+                          </div>
+                          <div className="text-xs text-slate-600 leading-relaxed">
+                            {archiveSubTab === 'overdue'
+                              ? t('notebook.archiveOverdueHowBody')
+                              : t('notebook.archiveMasteryHowBody')}
+                          </div>
+                        </div>
+
+                        {activeList.length === 0 ? (
+                          <div className="text-center py-10">
+                            <div className="text-sm font-black text-slate-700 mb-1">
+                              {archiveSubTab === 'overdue'
+                                ? t('notebook.noOverdueArchives')
+                                : t('notebook.noMasteryArchives')}
+                            </div>
+                            <div className="text-xs text-slate-500">
+                              {archiveSubTab === 'overdue'
+                                ? t('notebook.noOverdueArchivesHint')
+                                : t('notebook.noMasteryArchivesHint')}
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="space-y-3">
+                            {activeList.map(renderCard)}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()
                 )}
               </motion.div>
             )}

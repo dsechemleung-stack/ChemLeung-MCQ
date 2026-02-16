@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   Calendar as CalendarIcon, ChevronLeft, ChevronRight, Plus, X, 
-  Clock, Target, Brain, Zap, CheckCircle, Edit2, Trash2, AlertCircle 
+  Clock, Target, Brain, Zap, CheckCircle, Edit2, Trash2, AlertCircle, Info
 } from 'lucide-react';
 import { useLanguage } from '../../contexts/LanguageContext';
 import {
@@ -37,7 +37,7 @@ export default function StudyPlannerCalendar({ mistakes = [] }) {
   const [events, setEvents] = useState([]);
   const [selectedDate, setSelectedDate] = useState(null);
   const [showAddEventModal, setShowAddEventModal] = useState(false);
-  const [hoveredDate, setHoveredDate] = useState(null);
+  const [showSrsInfo, setShowSrsInfo] = useState(false);
   
   // Load events from storage
   useEffect(() => {
@@ -333,6 +333,15 @@ export default function StudyPlannerCalendar({ mistakes = [] }) {
                     return key.split('_').map(w => w[0] + w.slice(1).toLowerCase()).join(' ');
                   })()}
                 </span>
+                {type === EVENT_TYPES.MISTAKE_REVIEW && (
+                  <button
+                    onClick={() => setShowSrsInfo(true)}
+                    className="w-5 h-5 rounded-full bg-purple-100 hover:bg-purple-200 hover:scale-110 hover:shadow-sm active:scale-95 transition-all duration-200 text-purple-700 flex items-center justify-center"
+                    title={t('calendar.srsReviewMechanismTitle')}
+                  >
+                    <Info size={12} strokeWidth={2.5} />
+                  </button>
+                )}
               </div>
             ))}
           </div>
@@ -368,6 +377,28 @@ export default function StudyPlannerCalendar({ mistakes = [] }) {
             setSelectedDate(null);
           }}
         />
+      )}
+
+      {/* SRS Info Modal */}
+      {showSrsInfo && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setShowSrsInfo(false)}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xl border-2 border-slate-200" onClick={(e) => e.stopPropagation()}>
+            <div className="p-5 border-b-2 border-slate-200 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Info size={20} className="text-purple-700" />
+                <h3 className="text-lg font-black text-slate-800">{t('calendar.srsReviewMechanismTitle')}</h3>
+              </div>
+              <button type="button" onClick={() => setShowSrsInfo(false)} className="p-2 hover:bg-slate-100 rounded-xl transition-all" aria-label={t('common.close')}>
+                <X size={20} />
+              </button>
+            </div>
+            <div className="p-5 space-y-3 text-sm text-slate-700">
+              <p className="font-medium">
+                {t('calendar.srsReviewMechanismDesc')}
+              </p>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

@@ -19,6 +19,7 @@ import {
   writeBatch
 } from 'firebase/firestore';
 import { performanceService } from './performanceService';
+import { getNow } from '../utils/timeTravel';
 
 export const EVENT_TYPES = {
   MAJOR_EXAM: 'major_exam',
@@ -364,13 +365,101 @@ export async function deleteEvent(eventId, cascadeDelete = true) {
   }
 }
 
+/**
+ * Schedule spaced repetition events based on SRS system
+ * 
+ * @param {string} userId - User ID
+ * @param {Object} params - Scheduling parameters
+ * @returns {Promise<Object>} Scheduling results
+ */
+export async function scheduleSpacedRepetition(userId, params) {
+  try {
+    console.log('🧠 Scheduling SRS events for user:', userId);
+    
+    // Import SRS service dynamically to avoid circular dependencies
+    const { srsService } = await import('./srsService');
+    
+    // Schedule only cards due exactly today (avoid scheduling a large overdue backlog)
+    const todayStr = getNow().toISOString().split('T')[0];
+    const dueCards = await srsService.getCardsDueOnDate(userId, todayStr);
+    
+    if (dueCards.length === 0) {
+      console.log('✅ No due SRS cards found');
+      return { scheduled: 0, events: [], message: 'No due cards found' };
+    }
+
+    console.log(`📊 Found ${dueCards.length} SRS cards due today (${todayStr})`);
+
+    // Create calendar events for due cards
+    const events = [];
+
+    const batch = writeBatch(db);
+    for (const card of dueCards) {
+      // Deterministic ID to prevent duplicates for the same card+date
+      const eventId = `srs_${card.id}_${card.nextReviewDate}`;
+
+      const calendarEvent = {
+        id: eventId,
+        userId,
+        type: EVENT_TYPES.SPACED_REPETITION,
+        date: card.nextReviewDate,
+        title: `SRS Review: ${card.subtopic || card.topic}`,
+        description: `Spaced repetition review (Interval: ${card.interval} days)`,
+        topic: card.topic,
+        subtopic: card.subtopic,
+        questionId: card.questionId,
+        srsCardId: card.id,
+        difficulty: card.difficulty ?? null,
+        interval: card.interval,
+        easeFactor: card.easeFactor,
+        reviewCount: card.repetitionCount ?? 0,
+        priority: getPriorityFromDifficulty(card.difficulty ?? null),
+        completed: false,
+        createdAt: getNow().toISOString(),
+        updatedAt: getNow().toISOString()
+      };
+
+      // Save to user's calendar subcollection (matches optimized calendar reader)
+      batch.set(doc(db, 'users', userId, 'calendar_events', eventId), calendarEvent, { merge: true });
+      events.push(calendarEvent);
+    }
+
+    await batch.commit();
+    
+    console.log(`✅ Created ${events.length} SRS calendar events`);
+    
+    return {
+      scheduled: events.length,
+      events,
+      message: `Scheduled ${events.length} SRS reviews`
+    };
+    
+  } catch (error) {
+    console.error('❌ Error scheduling SRS events:', error);
+    throw error;
+  }
+}
+
+/**
+ * Get priority level based on SRS difficulty
+ */
+function getPriorityFromDifficulty(difficulty) {
+  switch (difficulty?.toLowerCase()) {
+    case 'hard': return 'high';
+    case 'medium': return 'medium';
+    case 'easy': return 'low';
+    default: return 'medium';
+  }
+}
+
 export const calendarService = {
   addMajorExam,
   addSmallQuiz,
   createAIRecommendationEvent,
   markEventCompleted,
   deleteEvent,
-  getCalendarData
+  getCalendarData,
+  scheduleSpacedRepetition
 };
 
 export default calendarService;

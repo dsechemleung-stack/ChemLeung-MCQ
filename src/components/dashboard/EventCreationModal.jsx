@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { X, Flag, BookOpen, Calendar, Tag, Layers, ArrowUpCircle } from 'lucide-react';
 import { motion } from 'framer-motion';
-import { calendarService } from '../../services/calendarService';
+import { calendarServiceOptimized } from '../../services/calendarServiceOptimized';
 import { useLanguage } from '../../contexts/LanguageContext';
 
 /**
@@ -218,9 +218,9 @@ export default function EventCreationModal({ userId, questions = [], onClose, on
       console.log('📝 Creating event:', eventData);
 
       if (eventType === 'major_exam') {
-        await calendarService.addMajorExam(userId, eventData);
+        await calendarServiceOptimized.addMajorExam(userId, eventData);
       } else {
-        await calendarService.addSmallQuiz(userId, eventData);
+        await calendarServiceOptimized.addSmallQuiz(userId, eventData);
       }
 
       alert(t('calendar.eventCreatedSuccess'));

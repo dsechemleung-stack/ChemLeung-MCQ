@@ -14,13 +14,17 @@ import {
   setDoc, 
   getDoc,
   getDocs,
+  getCountFromServer,
   updateDoc,
+  deleteDoc,
   query, 
   where,
   orderBy,
+  limit,
   Timestamp,
   writeBatch
 } from 'firebase/firestore';
+import { getNow } from '../utils/timeTravel';
 import {
   createNewCard,
   updateCardAfterReview,
@@ -91,20 +95,29 @@ export async function createCardsFromMistakes(userId, wrongQuestions, sessionId,
  * 
  * @param {string} userId - User ID
  * @param {Date} asOf - Check for cards due as of this date (defaults to today)
+ * @param {Object} options - Query options
+ * @param {number} options.limit - Max number of due cards to return
  * @returns {Promise<Array>} Due cards
  */
-export async function getDueCards(userId, asOf = new Date()) {
+export async function getDueCards(userId, asOf = getNow(), options = {}) {
   const today = asOf.toISOString().split('T')[0];
+  const max = Number(options?.limit);
   
   console.log(`🔍 Fetching due cards for ${userId} as of ${today}`);
   
-  const cardsQuery = query(
+  const queryParts = [
     collection(db, COLLECTIONS.CARDS),
     where('userId', '==', userId),
     where('isActive', '==', true),
     where('nextReviewDate', '<=', today),
     orderBy('nextReviewDate', 'asc')
-  );
+  ];
+
+  if (Number.isFinite(max) && max > 0) {
+    queryParts.push(limit(max));
+  }
+
+  const cardsQuery = query(...queryParts);
   
   const snapshot = await getDocs(cardsQuery);
   const dueCards = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
@@ -112,6 +125,200 @@ export async function getDueCards(userId, asOf = new Date()) {
   console.log(`📊 Found ${dueCards.length} cards due for review`);
   
   return dueCards;
+}
+
+/**
+ * Get cards due on an exact date (no overdue accumulation)
+ *
+ * This is useful for calendar scheduling when you only want to create
+ * events for "today" (or a specific day) and avoid reading a large backlog.
+ *
+ * @param {string} userId - User ID
+ * @param {string} dateStr - YYYY-MM-DD
+ * @param {Object} options - Query options
+ * @param {number} options.limit - Max number of cards to return
+ * @returns {Promise<Array>} Cards due exactly on dateStr
+ */
+export async function getCardsDueOnDate(userId, dateStr, options = {}) {
+  const max = Number(options?.limit);
+
+  if (!dateStr) {
+    throw new Error('getCardsDueOnDate requires dateStr (YYYY-MM-DD)');
+  }
+
+  console.log(`🔍 Fetching cards due on ${dateStr} for ${userId}`);
+
+  const queryParts = [
+    collection(db, COLLECTIONS.CARDS),
+    where('userId', '==', userId),
+    where('isActive', '==', true),
+    where('nextReviewDate', '==', dateStr),
+    orderBy('nextReviewDate', 'asc')
+  ];
+
+  if (Number.isFinite(max) && max > 0) {
+    queryParts.push(limit(max));
+  }
+
+  const cardsQuery = query(...queryParts);
+  const snapshot = await getDocs(cardsQuery);
+  const cards = snapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() }));
+
+  console.log(`📊 Found ${cards.length} cards due on ${dateStr}`);
+  return cards;
+}
+
+export async function getOverdueCount(userId, asOf = getNow()) {
+  const todayStr = asOf.toISOString().split('T')[0];
+  const fourteenDaysAgo = new Date(asOf);
+  fourteenDaysAgo.setDate(fourteenDaysAgo.getDate() - 14);
+  const fourteenDaysAgoStr = fourteenDaysAgo.toISOString().split('T')[0];
+
+  const q = query(
+    collection(db, COLLECTIONS.CARDS),
+    where('userId', '==', userId),
+    where('isActive', '==', true),
+    where('nextReviewDate', '<', todayStr),
+    where('nextReviewDate', '>=', fourteenDaysAgoStr)
+  );
+
+  const snap = await getCountFromServer(q);
+  return Number(snap.data().count || 0);
+}
+
+/**
+ * Archive overdue cards older than 14 days (recoverable)
+ * 
+ * @param {string} userId - User ID
+ * @returns {Promise<number>} Number of archived cards
+ */
+export async function archiveOverdueCards(userId) {
+  const today = new Date();
+  const fourteenDaysAgo = new Date(today);
+  fourteenDaysAgo.setDate(fourteenDaysAgo.getDate() - 14);
+  const fourteenDaysAgoStr = fourteenDaysAgo.toISOString().split('T')[0];
+  
+  console.log(`🗄️ Archiving overdue cards older than 14 days for user ${userId}`);
+  
+  // Find cards overdue by more than 14 days
+  const overdueQuery = query(
+    collection(db, COLLECTIONS.CARDS),
+    where('userId', '==', userId),
+    where('isActive', '==', true),
+    where('nextReviewDate', '<', fourteenDaysAgoStr)
+  );
+  
+  const snapshot = await getDocs(overdueQuery);
+  const cardsToArchive = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+  
+  if (cardsToArchive.length === 0) {
+    console.log('✅ No cards to archive');
+    return 0;
+  }
+  
+  // Archive cards in batches
+  const batchSize = 500;
+  let archivedCount = 0;
+  
+  for (let i = 0; i < cardsToArchive.length; i += batchSize) {
+    const batch = writeBatch(db);
+    const batchCards = cardsToArchive.slice(i, i + batchSize);
+    
+    batchCards.forEach(card => {
+      const cardRef = doc(db, COLLECTIONS.CARDS, card.id);
+      batch.update(cardRef, {
+        isActive: false,
+        archivedAt: new Date().toISOString(),
+        archiveReason: 'overdue_14_days',
+        updatedAt: new Date().toISOString()
+      });
+    });
+    
+    await batch.commit();
+    archivedCount += batchCards.length;
+    console.log(`📦 Archived batch of ${batchCards.length} cards`);
+  }
+  
+  console.log(`🎉 Successfully archived ${archivedCount} overdue cards`);
+  return archivedCount;
+}
+
+/**
+ * Get archived cards for a user
+ * 
+ * @param {string} userId - User ID
+ * @param {Object} options - Query options
+ * @param {string} options.reason - Filter by archive reason
+ * @param {number} options.limit - Max number of cards to return
+ * @returns {Promise<Array>} Archived cards
+ */
+export async function getArchivedCards(userId, options = {}) {
+  const { reason, limit } = options;
+  
+  const queryParts = [
+    collection(db, COLLECTIONS.CARDS),
+    where('userId', '==', userId),
+    where('isActive', '==', false)
+  ];
+  
+  if (reason) {
+    queryParts.push(where('archiveReason', '==', reason));
+  }
+  
+  queryParts.push(orderBy('archivedAt', 'desc'));
+  
+  if (Number.isFinite(limit) && limit > 0) {
+    queryParts.push(limit(limit));
+  }
+  
+  const cardsQuery = query(...queryParts);
+  const snapshot = await getDocs(cardsQuery);
+  
+  return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+}
+
+/**
+ * Restore an archived card
+ * 
+ * @param {string} cardId - Card ID
+ * @returns {Promise<Object>} Restored card
+ */
+export async function restoreArchivedCard(cardId) {
+  const cardRef = doc(db, COLLECTIONS.CARDS, cardId);
+  
+  await updateDoc(cardRef, {
+    isActive: true,
+    archivedAt: null,
+    archiveReason: null,
+    updatedAt: new Date().toISOString()
+  });
+  
+  const updatedCard = await getCard(cardId);
+  console.log(`♻️ Restored archived card: ${cardId}`);
+  
+  return updatedCard;
+}
+/**
+ * Save a single card (for debugging)
+ * 
+ * @param {Object} card - Card data
+ * @returns {Promise<Object>} Saved card
+ */
+export async function saveCard(card) {
+  const cardRef = doc(db, COLLECTIONS.CARDS, card.id);
+  await setDoc(cardRef, card);
+  return { id: card.id, ...card };
+}
+
+/**
+ * Delete a card (for debugging)
+ * 
+ * @param {string} cardId - Card ID
+ * @returns {Promise<void>}
+ */
+export async function deleteCard(cardId) {
+  const cardRef = doc(db, COLLECTIONS.CARDS, cardId);
+  await deleteDoc(cardRef);
 }
 
 /**
@@ -125,6 +332,31 @@ export async function getAllCards(userId) {
 
   const snapshot = await getDocs(cardsQuery);
   return snapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() }));
+}
+
+export async function getCardsByQuestionIds(userId, questionIds = []) {
+  const ids = (Array.isArray(questionIds) ? questionIds : [])
+    .map((x) => String(x))
+    .filter(Boolean);
+
+  if (!userId || ids.length === 0) return [];
+
+  const chunkSize = 10;
+  const results = [];
+
+  for (let i = 0; i < ids.length; i += chunkSize) {
+    const chunk = ids.slice(i, i + chunkSize);
+    const q = query(
+      collection(db, COLLECTIONS.CARDS),
+      where('userId', '==', userId),
+      where('questionId', 'in', chunk)
+    );
+
+    const snap = await getDocs(q);
+    snap.docs.forEach((d) => results.push({ id: d.id, ...d.data() }));
+  }
+
+  return results;
 }
 
 /**
@@ -433,13 +665,21 @@ export async function updateDueFlags(userId) {
 export const srsService = {
   createCardsFromMistakes,
   getAllCards,
+  getCardsByQuestionIds,
   getRecentReviewAttempts,
   getDueCards,
+  getCardsDueOnDate,
+  getOverdueCount,
   getCard,
   submitReview,
   submitReviewSession,
   getReviewStats,
-  updateDueFlags
+  updateDueFlags,
+  archiveOverdueCards,
+  getArchivedCards,
+  restoreArchivedCard,
+  saveCard,
+  deleteCard
 };
 
 export default srsService;
