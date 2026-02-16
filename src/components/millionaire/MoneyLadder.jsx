@@ -64,21 +64,37 @@ export default function MoneyLadder({ ladder, currentLevel }) {
               const isFuture = step.level > currentLevel;
 
               const nodeBg = isCompleted
-                ? 'bg-amber-400'
+                ? step.isFireLevel
+                  ? 'bg-gradient-to-br from-red-500 to-orange-600'
+                  : 'bg-amber-400'
                 : isCurrent
-                  ? 'bg-blue-500'
-                  : 'bg-slate-700';
+                  ? step.isFireLevel
+                    ? 'bg-gradient-to-br from-red-600 to-orange-700'
+                    : 'bg-blue-500'
+                  : step.isFireLevel
+                    ? 'bg-gradient-to-br from-slate-800 to-red-900/50'
+                    : 'bg-slate-700';
 
               const ring = isCompleted
-                ? 'ring-amber-300/70'
+                ? step.isFireLevel
+                  ? 'ring-red-400/70 shadow-[0_0_30px_rgba(239,68,68,0.6)]'
+                  : 'ring-amber-300/70'
                 : isCurrent
-                  ? 'ring-blue-300/80'
-                  : 'ring-white/10';
+                  ? step.isFireLevel
+                    ? 'ring-red-300/80 shadow-[0_0_35px_rgba(239,68,68,0.8)] animate-pulse'
+                    : 'ring-blue-300/80'
+                  : step.isFireLevel
+                    ? 'ring-red-900/30'
+                    : 'ring-white/10';
 
               const glow = isCurrent
-                ? 'shadow-[0_0_24px_rgba(59,130,246,0.55)]'
+                ? step.isFireLevel
+                  ? 'shadow-[0_0_35px_rgba(239,68,68,0.8)]'
+                  : 'shadow-[0_0_24px_rgba(59,130,246,0.55)]'
                 : isCompleted
-                  ? 'shadow-[0_0_18px_rgba(251,191,36,0.35)]'
+                  ? step.isFireLevel
+                    ? 'shadow-[0_0_25px_rgba(239,68,68,0.5)]'
+                    : 'shadow-[0_0_18px_rgba(251,191,36,0.35)]'
                   : '';
 
               return (

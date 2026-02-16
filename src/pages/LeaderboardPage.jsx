@@ -4,11 +4,9 @@ import { useAuth } from '../contexts/AuthContext';
 import { useLanguage } from '../contexts/LanguageContext';
 import ChemistryLoading from '../components/ChemistryLoading';
 import { quizService } from '../services/quizService';
-import { Trophy, Medal, Award, Calendar, TrendingUp, ArrowLeft, Flame, GraduationCap } from 'lucide-react';
+import { Trophy, Medal, Award, Calendar, ArrowLeft, Flame, GraduationCap } from 'lucide-react';
 import Avatar from '../components/Avatar';
 import TokenRulesModal from '../components/TokenRulesModal';
-import { canClaimReward, recordRewardClaim } from '../services/tokenService';
-import { rewardLeaderboardPlacement } from '../services/rewardLogic';
 
 // ── Level badge ──────────────────────────────────────────────────────────────
 function LevelBadge({ level, rank }) {
@@ -131,28 +129,19 @@ function StreakBadge({ streak, rank }) {
 }
 
 export default function LeaderboardPage() {
-  const [activeTab, setActiveTab] = useState('weekly');
   const [leaderboard, setLeaderboard] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [claiming, setClaiming] = useState(false);
-  const [claimMessage, setClaimMessage] = useState(null);
   const [showRules, setShowRules] = useState(false);
-  const [claimRank, setClaimRank] = useState(null);
-  const [claimKey, setClaimKey] = useState(null);
   const { currentUser } = useAuth();
   const { t } = useLanguage();
   const navigate = useNavigate();
 
-  useEffect(() => { loadLeaderboard(); }, [activeTab]);
-  useEffect(() => { loadClaimContext(); }, [activeTab, currentUser?.uid]);
+  useEffect(() => { loadLeaderboard(); }, []);
 
   async function loadLeaderboard() {
     setLoading(true);
     try {
-      let data;
-      if (activeTab === 'weekly') data = await quizService.getWeeklyLeaderboard(20);
-      else if (activeTab === 'monthly') data = await quizService.getMonthlyLeaderboard(20);
-      else data = await quizService.getAllTimeLeaderboard(20);
+      const data = await quizService.getWeeklyLeaderboard(20);
       setLeaderboard(data);
     } catch (error) {
       console.error('Error loading leaderboard:', error);
@@ -170,111 +159,13 @@ export default function LeaderboardPage() {
     return `leaderboard_weekly_${yyyy}-W${String(weekNo).padStart(2, '0')}`;
   }
 
-  function getMonthlyKeyForDate(dateObj) {
-    const yyyy = dateObj.getFullYear();
-    const mm = String(dateObj.getMonth() + 1).padStart(2, '0');
-    return `leaderboard_monthly_${yyyy}-${mm}`;
-  }
-
-  async function loadClaimContext() {
-    if (!currentUser?.uid) {
-      setClaimRank(null);
-      setClaimKey(null);
-      return;
-    }
-    if (!['weekly', 'monthly'].includes(activeTab)) {
-      setClaimRank(null);
-      setClaimKey(null);
-      return;
-    }
-
-    try {
-      const now = new Date();
-      if (activeTab === 'weekly') {
-        const lastWeekDate = new Date(now);
-        lastWeekDate.setDate(lastWeekDate.getDate() - 7);
-        setClaimKey(getWeeklyKeyForDate(lastWeekDate));
-        const lastWeekLb = await quizService.getLastWeekLeaderboard(200);
-        const idx = lastWeekLb.findIndex(e => e.userId === currentUser.uid);
-        setClaimRank(idx >= 0 ? idx + 1 : null);
-      } else {
-        const lastMonthDate = new Date(now);
-        lastMonthDate.setMonth(lastMonthDate.getMonth() - 1);
-        setClaimKey(getMonthlyKeyForDate(lastMonthDate));
-        const lastMonthLb = await quizService.getLastMonthLeaderboard(200);
-        const idx = lastMonthLb.findIndex(e => e.userId === currentUser.uid);
-        setClaimRank(idx >= 0 ? idx + 1 : null);
-      }
-    } catch (e) {
-      console.error('Error loading claim context:', e);
-      setClaimRank(null);
-      setClaimKey(null);
-    }
-  }
-
-  const tabs = [
-    {
-      value: 'weekly',
-      icon: <Calendar size={16} />,
-      label: t('leaderboard.thisWeek'),
-    },
-    {
-      value: 'monthly',
-      icon: <TrendingUp size={16} />,
-      label: t('leaderboard.thisMonth'),
-    },
-    {
-      value: 'alltime',
-      icon: <Trophy size={16} />,
-      label: t('leaderboard.allTime'),
-    },
-  ];
-
-  const periodInfo = {
-    weekly: t('leaderboard.averageScoreLast7'),
-    monthly: t('leaderboard.averageScoreLast30'),
-    alltime: t('leaderboard.overallAccuracyAllTime'),
-  };
+  const periodInfo = t('leaderboard.averageScoreLast7');
 
   const myRank = useMemo(() => {
     if (!currentUser?.uid || !Array.isArray(leaderboard)) return null;
     const idx = leaderboard.findIndex(e => e.userId === currentUser.uid);
     return idx >= 0 ? idx + 1 : null;
   }, [leaderboard, currentUser]);
-
-  async function handleClaim() {
-    if (!currentUser?.uid) return;
-    if (!['weekly', 'monthly'].includes(activeTab)) return;
-    if (!claimKey) return;
-    if (!claimRank) {
-      setClaimMessage(activeTab === 'weekly' ? t('leaderboard.noRankLastWeek') : t('leaderboard.noRankLastMonth'));
-      return;
-    }
-
-    setClaiming(true);
-    setClaimMessage(null);
-    try {
-      const check = await canClaimReward(currentUser.uid, claimKey);
-      if (!check?.canClaim) {
-        setClaimMessage(check?.message || t('leaderboard.alreadyClaimed'));
-        setClaiming(false);
-        return;
-      }
-
-      const result = await rewardLeaderboardPlacement(currentUser.uid, claimRank, activeTab);
-      if (result?.success && result.tokensAwarded > 0) {
-        await recordRewardClaim(currentUser.uid, claimKey, 99999);
-        setClaimMessage(result.message || t('leaderboard.tokensAwarded', { count: result.tokensAwarded }));
-      } else {
-        await recordRewardClaim(currentUser.uid, claimKey, 99999);
-        setClaimMessage(t('leaderboard.noReward'));
-      }
-    } catch (e) {
-      console.error(e);
-      setClaimMessage(t('leaderboard.claimFailed'));
-    }
-    setClaiming(false);
-  }
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
@@ -322,41 +213,15 @@ export default function LeaderboardPage() {
         {/* Tabs + controls (glass lab panel) */}
         <div className="rounded-3xl border border-white/60 bg-white/75 backdrop-blur-xl shadow-[0_20px_50px_rgba(15,23,42,0.10)] overflow-hidden">
           <div className="flex border-b border-slate-200/50">
-            {tabs.map(tab => (
-              <button
-                key={tab.value}
-                onClick={() => setActiveTab(tab.value)}
-                className={`flex-1 px-4 py-4 font-black transition-all flex items-center justify-center gap-2 text-sm sm:text-base ${
-                  activeTab === tab.value
-                    ? 'bg-gradient-to-r from-cyan-600 to-indigo-600 text-white'
-                    : 'text-slate-700 hover:bg-white/70'
-                }`}
-              >
-                {tab.icon}
-                {tab.label}
-              </button>
-            ))}
+            <div className="flex-1 px-4 py-4 font-black flex items-center justify-center gap-2 text-sm sm:text-base bg-gradient-to-r from-cyan-600 to-indigo-600 text-white">
+              <Calendar size={16} />
+              {t('leaderboard.thisWeek')}
+            </div>
           </div>
 
           <div className="px-6 pt-5">
             <div className="flex items-center justify-between gap-3">
-              <div className="flex items-center gap-3 flex-wrap">
-                {['weekly', 'monthly'].includes(activeTab) && currentUser?.uid && (
-                  <button
-                    type="button"
-                    onClick={handleClaim}
-                    disabled={claiming || loading}
-                    className="px-5 py-2.5 rounded-full font-black text-sm text-white transition-all disabled:opacity-60 disabled:cursor-not-allowed bg-gradient-to-r from-emerald-500 via-green-500 to-lime-400 shadow-[0_10px_30px_rgba(34,197,94,0.30)] hover:shadow-[0_14px_36px_rgba(34,197,94,0.40)] hover:-translate-y-[1px]"
-                  >
-                    {claiming ? 'Claiming...' : (activeTab === 'weekly' ? 'Claim last week reward' : 'Claim last month reward')}
-                  </button>
-                )}
-                {claimMessage && (
-                  <div className="text-sm font-bold text-slate-700 bg-white/70 border border-white/80 px-3 py-2 rounded-2xl">
-                    {claimMessage}
-                  </div>
-                )}
-              </div>
+              <div />
 
               <button
                 type="button"
@@ -390,7 +255,7 @@ export default function LeaderboardPage() {
                 {leaderboard.map((entry, index) => {
                   const rank = index + 1;
                   const isCurrentUser = entry.userId === currentUser?.uid;
-                  const scoreToShow = activeTab === 'alltime' ? entry.overallPercentage : entry.averageScore;
+                  const scoreToShow = entry.averageScore;
                   const isTopThree = rank <= 3;
 
                   return (
@@ -422,10 +287,7 @@ export default function LeaderboardPage() {
                           </div>
 
                           <div className="mt-1 text-xs text-slate-600 font-semibold">
-                            {activeTab === 'alltime'
-                              ? `${entry.totalAttempts} ${t('leaderboard.attempts')} · ${entry.totalQuestions} ${t('leaderboard.questions')}`
-                              : `${entry.attemptCount} ${t('leaderboard.attempts')} · ${entry.totalQuestions} ${t('leaderboard.questions')}`
-                            }
+                            {`${entry.attemptCount} ${t('leaderboard.attempts')} · ${entry.totalQuestions} ${t('leaderboard.questions')}`}
                           </div>
 
                           <div className="mt-3 flex items-center gap-3">
@@ -465,7 +327,7 @@ export default function LeaderboardPage() {
         <p className="font-semibold mb-2">
           📊 {t('leaderboard.howRankingsWork')}
         </p>
-        <p className="text-blue-700">{periodInfo[activeTab]}</p>
+        <p className="text-blue-700">{periodInfo}</p>
         <div className="mt-3 flex flex-wrap gap-4 text-xs text-blue-700">
           <span className="flex items-center gap-1">
             <GraduationCap size={12} />

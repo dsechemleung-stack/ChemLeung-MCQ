@@ -15,10 +15,11 @@ export default function GameOverModal({ winAmount, questionsAnswered, fallbackRe
   };
   
   const amountValue = parseAmount(winAmount);
-  const isWinner = reason === 'win' || amountValue >= 35;
+  const isWinner = reason === 'win' || amountValue >= 42;
   const isCashOut = reason === 'cash_out';
   const isWrong = reason === 'wrong_answer';
-  const safetyNetTier = fallbackReward >= 14 ? 14 : fallbackReward >= 5 ? 5 : 0;
+  const isTimeUp = reason === 'time_up';
+  const safetyNetTier = fallbackReward >= 42 ? 42 : fallbackReward >= 14 ? 14 : fallbackReward >= 5 ? 5 : 0;
 
   return (
     <div className="m-go-overlay">
@@ -45,9 +46,11 @@ export default function GameOverModal({ winAmount, questionsAnswered, fallbackRe
           <div className="m-go-sub">
             {isCashOut
               ? t('millionaire.gameOver.cashOutConfirmed')
-              : isWinner
-                ? t('millionaire.gameOver.perfectRun')
-                : t('millionaire.gameOver.betterLuck')}
+              : isTimeUp
+                ? t('millionaire.gameOver.timeUp')
+                : isWinner
+                  ? t('millionaire.gameOver.perfectRun')
+                  : t('millionaire.gameOver.betterLuck')}
           </div>
 
           <div className="m-go-stats">
@@ -57,11 +60,11 @@ export default function GameOverModal({ winAmount, questionsAnswered, fallbackRe
             </div>
             <div className="m-go-stat">
               <div className="m-go-stat__k">{t('millionaire.gameOver.outOf')}</div>
-              <div className="m-go-stat__v">15</div>
+              <div className="m-go-stat__v">20</div>
             </div>
             <div className="m-go-stat">
               <div className="m-go-stat__k">{t('millionaire.safetyNet')}</div>
-              <div className="m-go-stat__v">{isWrong ? fallbackReward : safetyNetTier}</div>
+              <div className="m-go-stat__v">{(isWrong || isTimeUp) ? fallbackReward : safetyNetTier}</div>
             </div>
           </div>
 

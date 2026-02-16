@@ -223,8 +223,8 @@ export default function FisheyeCarousel({
                               </span>
                               <div className="pm-mill-maxwin pm-mill-maxwin--top" aria-hidden="true">
                                 {isEnglish
-                                  ? `Max Winning: 35 ${t('millionaire.tokensUnit')}`
-                                  : `最高獎勵：35 ${t('millionaire.tokensUnit')}`}
+                                  ? `Max Winning: 100 ${t('millionaire.tokensUnit')}`
+                                  : `最高獎勵：100 ${t('millionaire.tokensUnit')}`}
                               </div>
                               <div className="pm-mill-top-content">
                                 <div className={`pm-mill-title ${isEnglish ? '' : 'pm-mill-title--zh'}`}>

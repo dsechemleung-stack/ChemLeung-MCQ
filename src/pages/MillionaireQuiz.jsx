@@ -16,14 +16,16 @@ import GameOverModal from '../components/millionaire/GameOverModal';
 import ChemLeungModal from '../components/millionaire/ChemLeungModal';
 import ProbabilityModal from '../components/millionaire/ProbabilityModal';
 
-const LADDER_TOKENS = [1, 2, 3, 4, 5, 6, 7, 9, 11, 14, 17, 20, 23, 28, 35];
+const LADDER_TOKENS = [1, 2, 3, 4, 5, 7, 9, 11, 14, 17, 21, 25, 30, 35, 42, 50, 60, 72, 85, 100];
 
 function computeFailReward(levelReached) {
   const lvl = Number(levelReached || 0);
   if (!Number.isFinite(lvl) || lvl <= 0) return 0;
   if (lvl < 5) return 0;
   if (lvl >= 6 && lvl <= 10) return 5;
-  if (lvl >= 11 && lvl <= 15) return 14;
+  if (lvl >= 11 && lvl <= 14) return 14;
+  if (lvl >= 15 && lvl <= 17) return 42; // Safety net at Q15
+  if (lvl >= 18 && lvl <= 20) return 60; // Safety net at Q17
   return 0;
 }
 
@@ -68,6 +70,11 @@ export default function MillionaireQuiz({ questions: allQuestions = [] }) {
   const [lockInPending, setLockInPending] = useState(false);
   const [expandModal, setExpandModal] = useState(null); // null | { title, text }
 
+  // Timer for Q16-20 (1.25 minutes = 75 seconds)
+  const [timeRemaining, setTimeRemaining] = useState(75);
+  const [isTimedQuestion, setIsTimedQuestion] = useState(false);
+  const timerRef = useRef(null);
+
   const questionTextRef = useRef(null);
   const [questionFitFont, setQuestionFitFont] = useState(null);
   const [questionFitLineHeight, setQuestionFitLineHeight] = useState(null);
@@ -108,7 +115,8 @@ export default function MillionaireQuiz({ questions: allQuestions = [] }) {
     return LADDER_TOKENS.map((amt, idx) => ({
       level: idx + 1,
       amount: amt,
-      safe: idx + 1 === 5 || idx + 1 === 10,
+      safe: idx + 1 === 5 || idx + 1 === 10 || idx + 1 === 15 || idx + 1 === 17,
+      isFireLevel: idx + 1 >= 16, // Q16-20 have fire effects
     }));
   }, []);
 
@@ -134,6 +142,53 @@ export default function MillionaireQuiz({ questions: allQuestions = [] }) {
     }
   }, [allQuestions, navigate]);
 
+  // Timer logic for Q16-20
+  useEffect(() => {
+    const level = currentIndex + 1;
+    const shouldBeTimed = level >= 16;
+    
+    setIsTimedQuestion(shouldBeTimed);
+    
+    if (shouldBeTimed) {
+      setTimeRemaining(75);
+      timerRef.current = setInterval(() => {
+        setTimeRemaining(prev => {
+          if (prev <= 1) {
+            // Time's up - treat as wrong answer
+            handleTimeUp();
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    } else {
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
+    }
+
+    return () => {
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
+    };
+  }, [currentIndex]);
+
+  const handleTimeUp = () => {
+    if (lockedOption || gameOver) return;
+    // Set game over with time up reason
+    const failReward = computeFailReward(level);
+    finalizeGame({ reward: failReward, reason: 'time_up' });
+  };
+
+  // Debug function to jump to Q14
+  const debugJumpToQ14 = () => {
+    setCurrentIndex(13); // Q14 is index 13
+    resetPerQuestionState();
+  };
+
   const resetPerQuestionState = () => {
     setSelectedOption(null);
     setLockedOption(null);
@@ -144,8 +199,16 @@ export default function MillionaireQuiz({ questions: allQuestions = [] }) {
 
   const awardTokensToUser = async (amount) => {
     if (!currentUser?.uid || !amount || amount <= 0) return;
-    const userRef = doc(db, 'users', currentUser.uid);
-    await updateDoc(userRef, { tokens: increment(amount) });
+    try {
+      const { awardTokens } = await import('../services/tokenService');
+      await awardTokens(currentUser.uid, amount, `Millionaire Game: Completed Q${level}`, {
+        category: 'millionaire',
+        level,
+        totalReward: amount
+      });
+    } catch (error) {
+      console.error('Error awarding tokens:', error);
+    }
   };
 
   const finalizeGame = async ({ reward, reason }) => {
@@ -229,7 +292,7 @@ export default function MillionaireQuiz({ questions: allQuestions = [] }) {
         const bankAfter = LADDER_TOKENS[passedLevel - 1] || 0;
         setPendingBank(bankAfter);
 
-        if (passedLevel === 5 || passedLevel === 10) {
+        if (passedLevel === 5 || passedLevel === 10 || passedLevel === 15) {
           setMilestoneOverlay({ level: passedLevel, tokens: bankAfter });
           return;
         }
@@ -261,7 +324,8 @@ export default function MillionaireQuiz({ questions: allQuestions = [] }) {
 
   const handleCashOut = async () => {
     if (gameOver || savingReward) return;
-    const reward = pendingBank > 0 ? pendingBank : currentBank;
+    // Use safety net calculation for quitting
+    const reward = computeFailReward(level);
     await finalizeGame({ reward, reason: 'cash_out' });
   };
 
@@ -512,6 +576,14 @@ export default function MillionaireQuiz({ questions: allQuestions = [] }) {
           </div>
 
           <div className="flex items-center gap-2">
+            {/* Debug button - jump to Q14 */}
+            <button
+              onClick={debugJumpToQ14}
+              className="hidden lg:inline-flex px-3 py-1.5 bg-purple-600/25 border border-purple-400/40 rounded-xl text-purple-200 hover:bg-purple-600/35 transition text-xs font-mono"
+            >
+              Q14
+            </button>
+
             <div className="hidden sm:block text-right">
               <div className="text-[11px] text-white/70">{t('millionaire.rewardIfClear')}</div>
               <div className="text-lg font-black text-amber-300">
@@ -565,6 +637,37 @@ export default function MillionaireQuiz({ questions: allQuestions = [] }) {
                 >
                   <PhoneCall size={18} />
                 </MagneticIconButton>
+
+                {/* Timer with fire line for Q16-20 */}
+                {isTimedQuestion && (
+                  <div className="flex items-center gap-3 px-4 py-2 bg-red-600/20 border border-red-400/40 rounded-xl">
+                    <div className="relative">
+                      {/* Fire line - decreases as time runs out */}
+                      <div className="w-20 h-2 bg-gray-700 rounded-full overflow-hidden">
+                        <div 
+                          className="h-full bg-gradient-to-r from-red-500 to-orange-500 transition-all duration-1000 ease-linear"
+                          style={{ width: `${(timeRemaining / 75) * 100}%` }}
+                        />
+                      </div>
+                      {/* Fire emoji at the end of the line */}
+                      <div 
+                        className="absolute -top-1 text-sm transition-all duration-1000 ease-linear"
+                        style={{ left: `${(timeRemaining / 75) * 80 - 8}px` }}
+                      >
+                        🔥
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="relative w-3 h-3">
+                        <div className="absolute inset-0 bg-red-500 rounded-full animate-pulse"></div>
+                        <div className="absolute inset-0 bg-red-400 rounded-full animate-ping"></div>
+                      </div>
+                      <span className={`font-mono font-bold ${timeRemaining <= 10 ? 'text-red-300 animate-pulse' : 'text-red-200'}`}>
+                        {Math.floor(timeRemaining / 60)}:{(timeRemaining % 60).toString().padStart(2, '0')}
+                      </span>
+                    </div>
+                  </div>
+                )}
               </div>
 
               <button
@@ -592,7 +695,7 @@ export default function MillionaireQuiz({ questions: allQuestions = [] }) {
             <div className="flex-none w-full m-hex-wrap" style={{ ['--m-hex-span']: '90%' }}>
               <div className="m-hex-extend" />
               <div
-                className="m-hex m-hex--svg m-hex--idle px-0 shadow-2xl flex items-center justify-center"
+                className="m-hex m-hex--svg m-hex--idle px-0 shadow-2xl flex items-center justify-center transition-all duration-500"
                 style={{
                   width: 'var(--m-hex-span)',
                   marginLeft: 'auto',
@@ -602,7 +705,7 @@ export default function MillionaireQuiz({ questions: allQuestions = [] }) {
                   maxHeight: `${QUESTION_HEIGHT}px`
                 }}
               >
-                <HexNeonOutline />
+                <HexNeonOutline isTimedQuestion={isTimedQuestion} />
                 {(() => {
                   const q = getFittedText(currentQuestion.Question, true);
                   return (
@@ -661,7 +764,7 @@ export default function MillionaireQuiz({ questions: allQuestions = [] }) {
                       <MagneticMotionButton
                         onClick={() => handleSelect(opt)}
                         disabled={savingReward || gameOver || hiddenOptions.has(opt)}
-                        className={`px-0 text-left shadow-xl ${getOptionClass(opt)} hover:scale-[1.02] w-full flex items-center`}
+                        className={`px-0 text-left shadow-xl ${getOptionClass(opt)} hover:scale-[1.02] w-full flex items-center transition-all duration-500`}
                         style={{
                           height: `${ANSWER_HEIGHT}px`,
                           minHeight: `${ANSWER_HEIGHT}px`,
@@ -669,7 +772,7 @@ export default function MillionaireQuiz({ questions: allQuestions = [] }) {
                         }}
                       >
                         {shimmerOption === opt && <span className="m-shimmer" />}
-                        <HexNeonOutline />
+                        <HexNeonOutline isTimedQuestion={isTimedQuestion} />
                         <span className="m-answer-connectors" />
                         {(() => {
                           const a = getFittedText(optionText[opt] || '', false);
@@ -724,7 +827,9 @@ export default function MillionaireQuiz({ questions: allQuestions = [] }) {
                 <button
                   onClick={handleLockIn}
                   disabled={!selectedOption || !!lockedOption || savingReward || gameOver}
-                  className="w-full m-lockin-btn"
+                  className={`w-full m-lockin-btn transition-all duration-500 ${
+                    isTimedQuestion ? 'm-lockin-btn-timed' : ''
+                  }`}
                 >
                   {t('millionaire.lockIn')}
                 </button>
@@ -772,7 +877,7 @@ export default function MillionaireQuiz({ questions: allQuestions = [] }) {
               <div className="m-dec-title">{t('millionaire.overlays.confirmQuit')}</div>
               <div className="m-dec-body">
                 {t('millionaire.overlays.cashOutToSavePrefix')}
-                <span className="m-dec-value"> {currentBank} {t('millionaire.tokensUnit')}</span>
+                <span className="m-dec-value"> {computeFailReward(level)} {t('millionaire.tokensUnit')}</span>
                 {t('millionaire.overlays.cashOutToSaveSuffix')}
                 {' '}
                 {t('millionaire.overlays.orStayContinue')}
@@ -850,6 +955,11 @@ export default function MillionaireQuiz({ questions: allQuestions = [] }) {
               <div className="m-dec-body m-dec-body--muted">
                 {tf('millionaire.overlays.safeHavenAt', { level: milestoneOverlay.level })}
               </div>
+              {milestoneOverlay.level === 15 && (
+                <div className="m-dec-body m-dec-body--fire">
+                  🔥 {t('millionaire.overlays.fireRoundWarning')} 🔥
+                </div>
+              )}
               <div className="m-dec-actions">
                 <button
                   onClick={handleMilestoneContinue}
@@ -999,7 +1109,7 @@ function useMediaQuery(query) {
   return matches;
 }
 
-function HexNeonOutline() {
+function HexNeonOutline({ isTimedQuestion = false }) {
   const filterId = useId();
   return (
     <svg className="m-hex-outline" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
@@ -1016,6 +1126,7 @@ function HexNeonOutline() {
         className="m-hex-glow"
         points="16,0 84,0 100,50 84,100 16,100 0,50"
         fill="none"
+        stroke={isTimedQuestion ? "#ef4444" : "#22d3ee"}
         strokeWidth="2.6"
         filter={`url(#${filterId})`}
         opacity="0.95"
@@ -1024,6 +1135,7 @@ function HexNeonOutline() {
         className="m-hex-core"
         points="16,0 84,0 100,50 84,100 16,100 0,50"
         fill="none"
+        stroke={isTimedQuestion ? "#f87171" : "#67e8f9"}
         strokeWidth="1.2"
         opacity="0.98"
       />

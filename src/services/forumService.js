@@ -1,8 +1,19 @@
 import { 
   collection, addDoc, updateDoc, deleteDoc, doc, query,
-  where, orderBy, getDocs, getDoc, increment, onSnapshot
+  where, orderBy, getDocs, getDoc, increment, onSnapshot, limit
 } from 'firebase/firestore';
 import { db } from '../firebase/config';
+
+// Initialize Algolia (replace with your actual App ID and Search-Only API Key)
+// You can expose these via environment variables or a config file
+const ALGOLIA_APP_ID = import.meta.env.VITE_ALGOLIA_APP_ID;
+const ALGOLIA_SEARCH_KEY = import.meta.env.VITE_ALGOLIA_SEARCH_KEY;
+const ALGOLIA_INDEX_NAME = 'forum_posts';
+
+function getAlgoliaSearchUrl() {
+  if (!ALGOLIA_APP_ID) return '';
+  return `https://${ALGOLIA_APP_ID}-dsn.algolia.net/1/indexes/${encodeURIComponent(ALGOLIA_INDEX_NAME)}/query`;
+}
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 export const EDIT_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
@@ -94,11 +105,9 @@ export const forumService = {
       return snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
     } catch (error) {
       if (error.code === 'failed-precondition') {
-        const snapshot = await getDocs(collection(db, 'comment_replies'));
-        return snapshot.docs
-          .map(d => ({ id: d.id, ...d.data() }))
-          .filter(r => r.parentCommentId === String(parentCommentId))
-          .sort((a, b) => new Date(a.CreatedAt) - new Date(b.CreatedAt));
+        throw new Error(
+          'Missing Firestore index for comment replies. Create composite index on comment_replies: parentCommentId ASC, CreatedAt ASC.'
+        );
       }
       throw error;
     }
@@ -207,22 +216,22 @@ export const forumService = {
     }
   },
 
-  async getQuestionsWithComments() {
+  async getQuestionsWithComments(limitCount = 500) {
     try {
-      const snapshot = await getDocs(collection(db, 'comments'));
-      const map = new Map();
-      snapshot.forEach(d => {
-        const data = d.data();
-        if (!data.questionId) return;
-        if (!map.has(data.questionId)) {
-          map.set(data.questionId, { questionId: data.questionId, commentCount: 1, lastActivity: data.createdAt });
-        } else {
-          const ex = map.get(data.questionId);
-          ex.commentCount++;
-          if (data.createdAt > ex.lastActivity) ex.lastActivity = data.createdAt;
-        }
-      });
-      return Array.from(map.values()).sort((a, b) => new Date(b.lastActivity) - new Date(a.lastActivity));
+      const q = query(
+        collection(db, 'comment_question_stats'),
+        orderBy('lastActivity', 'desc'),
+        limit(limitCount)
+      );
+      const snapshot = await getDocs(q);
+      return snapshot.docs
+        .map(d => ({ id: d.id, ...d.data() }))
+        .map(s => ({
+          questionId: s.questionId || s.id,
+          commentCount: Number(s.commentCount || 0),
+          lastActivity: s.lastActivity || null
+        }))
+        .filter(s => !!s.questionId && !!s.lastActivity);
     } catch (error) {
       throw error;
     }
@@ -247,19 +256,18 @@ export const forumService = {
     try {
       let q;
       if (category) {
-        q = query(collection(db, 'forum_posts'), where('category', '==', category), orderBy('createdAt', 'desc'));
+        q = query(collection(db, 'forum_posts'), where('category', '==', category), orderBy('createdAt', 'desc'), limit(lim));
       } else {
-        q = query(collection(db, 'forum_posts'), orderBy('createdAt', 'desc'));
+        q = query(collection(db, 'forum_posts'), orderBy('createdAt', 'desc'), limit(lim));
       }
       const snapshot = await getDocs(q);
       const posts = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
-      return posts.slice(0, lim);
+      return posts;
     } catch (error) {
       if (error.code === 'failed-precondition') {
-        const snapshot = await getDocs(collection(db, 'forum_posts'));
-        return snapshot.docs.map(d => ({ id: d.id, ...d.data() }))
-          .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
-          .slice(0, lim);
+        throw new Error(
+          'Missing Firestore index for forum posts. Create composite index on forum_posts: category ASC, createdAt DESC (only needed when filtering by category).'
+        );
       }
       throw error;
     }
@@ -343,11 +351,9 @@ export const forumService = {
       return snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
     } catch (error) {
       if (error.code === 'failed-precondition') {
-        const snapshot = await getDocs(collection(db, 'forum_replies'));
-        return snapshot.docs
-          .map(d => ({ id: d.id, ...d.data() }))
-          .filter(r => r.postId === postId)
-          .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+        throw new Error(
+          'Missing Firestore index for forum replies. Create composite index on forum_replies: postId ASC, createdAt ASC.'
+        );
       }
       throw error;
     }
@@ -414,18 +420,16 @@ export const forumService = {
       const q = query(
         collection(db, 'notifications'),
         where('recipientId', '==', userId),
-        orderBy('createdAt', 'desc')
+        orderBy('createdAt', 'desc'),
+        limit(limitCount)
       );
       const snapshot = await getDocs(q);
       return snapshot.docs.map(d => ({ id: d.id, ...d.data() })).slice(0, limitCount);
     } catch (error) {
       if (error.code === 'failed-precondition') {
-        const snapshot = await getDocs(collection(db, 'notifications'));
-        return snapshot.docs
-          .map(d => ({ id: d.id, ...d.data() }))
-          .filter(n => n.recipientId === userId)
-          .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
-          .slice(0, limitCount);
+        throw new Error(
+          'Missing Firestore index for notifications. Create composite index on notifications: recipientId ASC, createdAt DESC.'
+        );
       }
       return [];
     }
@@ -441,15 +445,108 @@ export const forumService = {
     await Promise.all(unread.map(n => forumService.markNotificationRead(n.id)));
   },
 
-  subscribeToNotifications(userId, callback) {
+  async deleteNotification(notifId) {
+    await deleteDoc(doc(db, 'notifications', notifId));
+  },
+
+  async deleteAllNotifications(userId, limitCount = 200) {
     const q = query(
       collection(db, 'notifications'),
       where('recipientId', '==', userId),
-      orderBy('createdAt', 'desc')
+      orderBy('createdAt', 'desc'),
+      limit(limitCount)
+    );
+    const snapshot = await getDocs(q);
+    await Promise.all(snapshot.docs.map((d) => deleteDoc(d.ref)));
+  },
+
+  subscribeToNotifications(userId, callback, limitCount = 50) {
+    const q = query(
+      collection(db, 'notifications'),
+      where('recipientId', '==', userId),
+      orderBy('createdAt', 'desc'),
+      limit(limitCount)
     );
     return onSnapshot(q, (snapshot) => {
       const notifs = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
       callback(notifs);
     }, () => { /* ignore snapshot errors */ });
+  },
+
+  // === Algolia search for forum posts ===
+  async searchPosts({ query: searchQuery, page = 0, hitsPerPage = 10, hydrate = true } = {}) {
+    const url = getAlgoliaSearchUrl();
+    if (!url || !ALGOLIA_SEARCH_KEY) {
+      throw new Error('Algolia not configured. Set VITE_ALGOLIA_APP_ID and VITE_ALGOLIA_SEARCH_KEY in your environment.');
+    }
+    if (!searchQuery || typeof searchQuery !== 'string') {
+      throw new Error('searchPosts requires a non-empty string query.');
+    }
+
+    const params = new URLSearchParams({
+      query: searchQuery,
+      page: String(page),
+      hitsPerPage: String(hitsPerPage),
+    });
+
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Algolia-Application-Id': ALGOLIA_APP_ID,
+        'X-Algolia-API-Key': ALGOLIA_SEARCH_KEY,
+      },
+      body: JSON.stringify({ params: params.toString() }),
+    });
+
+    if (!res.ok) {
+      const txt = await res.text().catch(() => '');
+      throw new Error(`Algolia search failed (${res.status}). ${txt || ''}`.trim());
+    }
+
+    const result = await res.json();
+
+    if (!hydrate) {
+      // Return Algolia payload directly (0 Firestore reads)
+      return {
+        hits: result.hits.map(hit => ({
+          id: hit.objectID,
+          title: hit.title,
+          content: hit.content,
+          category: hit.category,
+          userDisplayName: hit.userDisplayName,
+          userId: hit.userId,
+          createdAt: hit.createdAt,
+        })),
+        page: result.page,
+        nbPages: result.nbPages,
+        nbHits: result.nbHits,
+        hitsPerPage: result.hitsPerPage,
+      };
+    }
+
+    // Hydrate full post docs from Firestore (reads = hits.length, usually 10)
+    const postIds = result.hits.map(hit => hit.objectID);
+    const postRefs = postIds.map(id => doc(db, 'forum_posts', id));
+    const postSnaps = await Promise.all(postRefs.map(ref => getDoc(ref)));
+
+    const posts = postSnaps
+      .filter(snap => snap.exists())
+      .map(snap => ({ id: snap.id, ...snap.data() }));
+
+    // Preserve Algolia ranking order
+    const orderedPosts = [];
+    for (const hit of result.hits) {
+      const post = posts.find(p => p.id === hit.objectID);
+      if (post) orderedPosts.push(post);
+    }
+
+    return {
+      hits: orderedPosts,
+      page: result.page,
+      nbPages: result.nbPages,
+      nbHits: result.nbHits,
+      hitsPerPage: result.hitsPerPage,
+    };
   }
 };

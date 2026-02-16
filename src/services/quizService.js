@@ -1,6 +1,22 @@
 import { doc, setDoc, collection, addDoc, updateDoc, increment, query, where, orderBy, limit, getDocs, getDoc } from 'firebase/firestore';
 import { db } from '../firebase/config';
 
+function toHongKongDate(dateObj) {
+  const d = dateObj instanceof Date ? dateObj : new Date(dateObj);
+  return new Date(d.getTime() + 8 * 60 * 60 * 1000);
+}
+
+function getWeeklyKeyForDate(dateObj) {
+  const hk = toHongKongDate(dateObj);
+  const date = new Date(Date.UTC(hk.getUTCFullYear(), hk.getUTCMonth(), hk.getUTCDate()));
+  const dayNum = date.getUTCDay() || 7;
+  date.setUTCDate(date.getUTCDate() + 4 - dayNum);
+  const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
+  const weekNo = Math.ceil((((date - yearStart) / 86400000) + 1) / 7);
+  const yyyy = date.getUTCFullYear();
+  return `leaderboard_weekly_${yyyy}-W${String(weekNo).padStart(2, '0')}`;
+}
+
 export const quizService = {
   // Save a quiz attempt WITH questions data for Mistake Notebook
   async saveAttempt(userId, attemptData) {
@@ -70,184 +86,48 @@ export const quizService = {
     return streak;
   },
 
-  // ─── Shared leaderboard builder ────────────────────────────────────────────
-  async _buildLeaderboard(attemptsQuery, limitCount, sortField = 'averageScore') {
-    const querySnapshot = await getDocs(attemptsQuery);
-
-    // Group by user
-    const userMap = new Map();
-    querySnapshot.forEach((doc) => {
-      const data = doc.data();
-      const uid = data.userId;
-      if (!userMap.has(uid)) {
-        userMap.set(uid, { userId: uid, attempts: [], totalScore: 0, totalQuestions: 0, totalCorrect: 0 });
-      }
-      const u = userMap.get(uid);
-      u.attempts.push(data);
-      u.totalScore += data.percentage;
-      u.totalQuestions += data.totalQuestions;
-      u.totalCorrect += data.correctAnswers;
-    });
-
-    // Fetch user profiles + compute streaks
-    const leaderboard = await Promise.all(
-      Array.from(userMap.values()).map(async (u) => {
-        const userDoc = await getDoc(doc(db, 'users', u.userId));
-        const userData = userDoc.data() || {};
-
-        // Streak: fetch all-time attempts for streak calculation
-        let streak = 0;
-        try {
-          const allQ = query(
-            collection(db, 'attempts'),
-            where('userId', '==', u.userId),
-            orderBy('timestamp', 'desc'),
-            limit(100),
-          );
-          const allSnap = await getDocs(allQ);
-          const allAttempts = [];
-          allSnap.forEach(d => allAttempts.push(d.data()));
-          streak = this._computeStreak(allAttempts);
-        } catch (_) { /* streak stays 0 */ }
-
-        return {
-          userId: u.userId,
-          displayName: userData.displayName || 'Unknown',
-          equippedProfilePic: (userData.equipped || {}).profilePic || 'flask_blue',
-          equippedTheme: (userData.equipped || {}).theme || 'default',
-          level: userData.level || null,          // S4 / S5 / S6
-          attemptCount: u.attempts.length,
-          averageScore: Math.round(u.totalScore / u.attempts.length),
-          totalQuestions: u.totalQuestions,
-          totalCorrect: u.totalCorrect,
-          overallPercentage: Math.round((u.totalCorrect / u.totalQuestions) * 100),
-          streak,
-        };
-      })
-    );
-
-    leaderboard.sort((a, b) => b[sortField] - a[sortField]);
-    return leaderboard.slice(0, limitCount);
-  },
-
   // Get weekly leaderboard
   async getWeeklyLeaderboard(limitCount = 10) {
     try {
-      const weekAgo = new Date(); weekAgo.setDate(weekAgo.getDate() - 7);
+      const weekId = getWeeklyKeyForDate(new Date());
       const q = query(
-        collection(db, 'attempts'),
-        where('timestamp', '>=', weekAgo.toISOString()),
-        orderBy('timestamp', 'desc'),
+        collection(db, 'weekly_leaderboards', weekId, 'entries'),
+        orderBy('averageScore', 'desc'),
+        limit(limitCount)
       );
-      return await this._buildLeaderboard(q, limitCount, 'averageScore');
+      const snap = await getDocs(q);
+      return snap.docs.map(d => ({ id: d.id, ...d.data() }));
     } catch (error) {
       console.error('Error getting weekly leaderboard:', error);
       throw error;
     }
   },
 
-  // Get leaderboard for a specific timestamp range [fromIso, toIso)
-  async getLeaderboardByRange(fromIso, toIso, limitCount = 10) {
+  async getMyWeeklyLeaderboardEntry(userId, dateObj = new Date()) {
     try {
-      if (!fromIso || !toIso) throw new Error('Missing range bounds');
-      const q = query(
-        collection(db, 'attempts'),
-        where('timestamp', '>=', fromIso),
-        where('timestamp', '<', toIso),
-        orderBy('timestamp', 'desc'),
-      );
-      return await this._buildLeaderboard(q, limitCount, 'averageScore');
+      if (!userId) return null;
+      const weekId = getWeeklyKeyForDate(dateObj);
+      const ref = doc(db, 'weekly_leaderboards', weekId, 'entries', userId);
+      const snap = await getDoc(ref);
+      return snap.exists() ? { id: snap.id, ...snap.data() } : null;
     } catch (error) {
-      console.error('Error getting ranged leaderboard:', error);
-      throw error;
+      console.error('Error getting my weekly leaderboard entry:', error);
+      return null;
     }
   },
 
   // Convenience: last 7-day window BEFORE the current week window
   async getLastWeekLeaderboard(limitCount = 10) {
     const now = new Date();
-    const to = new Date(now); to.setDate(to.getDate() - 7);
-    const from = new Date(now); from.setDate(from.getDate() - 14);
-    return await this.getLeaderboardByRange(from.toISOString(), to.toISOString(), limitCount);
-  },
-
-  // Get monthly leaderboard
-  async getMonthlyLeaderboard(limitCount = 10) {
-    try {
-      const monthAgo = new Date(); monthAgo.setMonth(monthAgo.getMonth() - 1);
-      const q = query(
-        collection(db, 'attempts'),
-        where('timestamp', '>=', monthAgo.toISOString()),
-        orderBy('timestamp', 'desc'),
-      );
-      return await this._buildLeaderboard(q, limitCount, 'averageScore');
-    } catch (error) {
-      console.error('Error getting monthly leaderboard:', error);
-      throw error;
-    }
-  },
-
-  // Convenience: last 30-day window BEFORE the current month window
-  async getLastMonthLeaderboard(limitCount = 10) {
-    const now = new Date();
-    const to = new Date(now); to.setMonth(to.getMonth() - 1);
-    const from = new Date(now); from.setMonth(from.getMonth() - 2);
-    return await this.getLeaderboardByRange(from.toISOString(), to.toISOString(), limitCount);
-  },
-
-  // Get all-time leaderboard
-  async getAllTimeLeaderboard(limitCount = 10) {
-    try {
-      const usersQuery = query(collection(db, 'users'));
-      const usersSnapshot = await getDocs(usersQuery);
-
-      const users = [];
-      const streakPromises = [];
-
-      usersSnapshot.forEach((docSnap) => {
-        const data = docSnap.data();
-        if (data.totalAttempts > 0) {
-          const entry = {
-            userId: docSnap.id,
-            displayName: data.displayName || 'Unknown',
-            level: data.level || null,
-            equippedProfilePic: (data.equipped || {}).profilePic || 'flask_blue',
-            equippedTheme: (data.equipped || {}).theme || 'default',
-            totalAttempts: data.totalAttempts || 0,
-            totalQuestions: data.totalQuestions || 0,
-            totalCorrect: data.totalCorrect || 0,
-            overallPercentage: data.totalQuestions > 0
-              ? Math.round((data.totalCorrect / data.totalQuestions) * 100)
-              : 0,
-            streak: 0,
-          };
-          users.push(entry);
-
-          // Queue streak fetch
-          streakPromises.push(
-            (async () => {
-              try {
-                const q = query(
-                  collection(db, 'attempts'),
-                  where('userId', '==', docSnap.id),
-                  orderBy('timestamp', 'desc'),
-                  limit(100),
-                );
-                const snap = await getDocs(q);
-                const arr = []; snap.forEach(d => arr.push(d.data()));
-                entry.streak = this._computeStreak(arr);
-              } catch (_) {}
-            })()
-          );
-        }
-      });
-
-      await Promise.all(streakPromises);
-      users.sort((a, b) => b.overallPercentage - a.overallPercentage);
-      return users.slice(0, limitCount);
-    } catch (error) {
-      console.error('Error getting all-time leaderboard:', error);
-      throw error;
-    }
+    const lastWeekDate = new Date(now);
+    lastWeekDate.setDate(lastWeekDate.getDate() - 7);
+    const weekId = getWeeklyKeyForDate(lastWeekDate);
+    const q = query(
+      collection(db, 'weekly_leaderboards', weekId, 'entries'),
+      orderBy('averageScore', 'desc'),
+      limit(limitCount)
+    );
+    const snap = await getDocs(q);
+    return snap.docs.map(d => ({ id: d.id, ...d.data() }));
   },
 };

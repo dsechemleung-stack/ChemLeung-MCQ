@@ -49,6 +49,10 @@ export async function awardTokens(userId, amount, reason, metadata = {}) {
       });
     });
 
+    // Clean up old history records (keep only 8 most recent)
+    // Run this after transaction to avoid conflicts
+    setTimeout(() => cleanupTokenHistory(userId), 100);
+
     return { success: true, message: `Awarded ${amount} tokens` };
   } catch (error) {
     console.error('Error awarding tokens:', error);
@@ -98,6 +102,9 @@ export async function deductTokens(userId, amount, reason, metadata = {}) {
 
       return { newBalance: newTokens };
     });
+
+    // Clean up old history records (keep only 8 most recent)
+    setTimeout(() => cleanupTokenHistory(userId), 100);
 
     return { success: true, newBalance: result.newBalance };
   } catch (error) {
@@ -214,7 +221,7 @@ export async function equipItem(userId, itemId, slot = 'profilePic') {
 /**
  * Get user's token transaction history
  */
-export async function getTokenHistory(userId, limitCount = 50) {
+export async function getTokenHistory(userId, limitCount = 8) {
   try {
     const historyRef = collection(db, 'users', userId, 'tokenHistory');
     const q = query(historyRef, orderBy('timestamp', 'desc'), limit(limitCount));
@@ -233,6 +240,40 @@ export async function getTokenHistory(userId, limitCount = 50) {
   } catch (error) {
     console.error('Error fetching token history:', error);
     return [];
+  }
+}
+
+/**
+ * Clean up old token history records, keeping only the most recent 8
+ */
+export async function cleanupTokenHistory(userId) {
+  try {
+    const historyRef = collection(db, 'users', userId, 'tokenHistory');
+    
+    // Get all records ordered by timestamp (newest first)
+    const allRecordsQuery = query(historyRef, orderBy('timestamp', 'desc'));
+    const snapshot = await getDocs(allRecordsQuery);
+    
+    // If we have more than 8 records, delete the oldest ones
+    if (snapshot.size > 8) {
+      const batch = writeBatch(db);
+      let deletedCount = 0;
+      
+      // Skip the first 8 (newest) and delete the rest
+      snapshot.docs.forEach((doc, index) => {
+        if (index >= 8) {
+          batch.delete(doc.ref);
+          deletedCount++;
+        }
+      });
+      
+      if (deletedCount > 0) {
+        await batch.commit();
+        console.log(`Cleaned up ${deletedCount} old token history records for user ${userId}`);
+      }
+    }
+  } catch (error) {
+    console.error('Error cleaning up token history:', error);
   }
 }
 
@@ -363,6 +404,9 @@ export async function initializeUserTokens(userId, initialTokens = 100) {
       balanceAfter: initialTokens,
       metadata: { category: 'welcome_bonus' }
     });
+
+    // Clean up old history records (keep only 8 most recent)
+    setTimeout(() => cleanupTokenHistory(userId), 100);
 
     return { success: true };
   } catch (error) {

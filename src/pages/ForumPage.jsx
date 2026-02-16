@@ -22,15 +22,16 @@ function NotificationPanel({ userId, onClose }) {
   const { t, tf } = useLanguage();
   const [notifs, setNotifs] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [limitCount, setLimitCount] = useState(10);
 
   useEffect(() => {
     setLoading(true);
     const unsub = forumService.subscribeToNotifications(userId, (data) => {
       setNotifs(data);
       setLoading(false);
-    });
+    }, limitCount);
     return () => unsub && unsub();
-  }, [userId]);
+  }, [userId, limitCount]);
 
   const handleMarkAllRead = async () => {
     await forumService.markAllNotificationsRead(userId);
@@ -38,6 +39,16 @@ function NotificationPanel({ userId, onClose }) {
 
   const handleMarkRead = async (id) => {
     await forumService.markNotificationRead(id);
+  };
+
+  const handleDelete = async (id) => {
+    await forumService.deleteNotification(id);
+  };
+
+  const handleDeleteAll = async () => {
+    const ok = window.confirm(t('forum.deleteAllNotificationsConfirm') || 'Delete all notifications?');
+    if (!ok) return;
+    await forumService.deleteAllNotifications(userId, 200);
   };
 
   const typeLabel = (n) => {
@@ -78,6 +89,11 @@ function NotificationPanel({ userId, onClose }) {
               {t('forum.markAllRead')}
             </button>
           )}
+          {notifs.length > 0 && (
+            <button onClick={handleDeleteAll} className="text-xs text-rose-600 hover:underline font-semibold">
+              {t('forum.deleteAll') || 'Delete all'}
+            </button>
+          )}
           <button onClick={onClose} className="p-1 hover:bg-slate-200 rounded"><X size={16} /></button>
         </div>
       </div>
@@ -88,27 +104,46 @@ function NotificationPanel({ userId, onClose }) {
         ) : notifs.length === 0 ? (
           <div className="text-center py-10 text-slate-400 text-sm">{t('forum.noNotificationsYet')}</div>
         ) : (
-          notifs.map(n => (
-            <div key={n.id} onClick={() => handleMarkRead(n.id)}
-              className={`p-4 border-b cursor-pointer hover:bg-slate-50 transition-all ${!n.read ? 'bg-blue-50' : ''}`}>
-              <div className="flex items-start gap-3">
-                <div className={`w-2 h-2 rounded-full mt-2 flex-shrink-0 ${!n.read ? 'bg-lab-blue' : 'bg-transparent'}`} />
-                <Avatar userId={n.senderId} displayName={n.senderDisplayName || t('common.someone')} size="xs" />
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm text-slate-800 font-medium leading-snug">
-                    <span className="font-bold">{n.senderDisplayName || t('common.someone')}</span> {typeLabel(n)}
-                  </p>
-                  {n.previewText && (
-                    <p className="text-xs text-slate-500 mt-1 truncate">"{n.previewText}"</p>
-                  )}
-                  {n.postTitle && (
-                    <p className="text-xs text-lab-blue mt-0.5 truncate">→ {n.postTitle}</p>
-                  )}
-                  <p className="text-xs text-slate-400 mt-1">{formatAgo(n.createdAt)}</p>
+          <>
+            {notifs.map(n => (
+              <div key={n.id} onClick={() => handleMarkRead(n.id)}
+                className={`p-4 border-b cursor-pointer hover:bg-slate-50 transition-all ${!n.read ? 'bg-blue-50' : ''}`}>
+                <div className="flex items-start gap-3">
+                  <div className={`w-2 h-2 rounded-full mt-2 flex-shrink-0 ${!n.read ? 'bg-lab-blue' : 'bg-transparent'}`} />
+                  <Avatar userId={n.senderId} displayName={n.senderDisplayName || t('common.someone')} size="xs" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm text-slate-800 font-medium leading-snug">
+                      <span className="font-bold">{n.senderDisplayName || t('common.someone')}</span> {typeLabel(n)}
+                    </p>
+                    {n.previewText && (
+                      <p className="text-xs text-slate-500 mt-1 truncate">"{n.previewText}"</p>
+                    )}
+                    {n.postTitle && (
+                      <p className="text-xs text-lab-blue mt-0.5 truncate">→ {n.postTitle}</p>
+                    )}
+                    <p className="text-xs text-slate-400 mt-1">{formatAgo(n.createdAt)}</p>
+                  </div>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); handleDelete(n.id); }}
+                    className="p-1 hover:bg-slate-200 rounded text-slate-500 hover:text-rose-600"
+                    title={t('forum.delete') || 'Delete'}
+                  >
+                    <X size={16} />
+                  </button>
                 </div>
               </div>
-            </div>
-          ))
+            ))}
+            {notifs.length >= limitCount && (
+              <div className="p-3 flex justify-center">
+                <button
+                  onClick={() => setLimitCount((n) => n + 10)}
+                  className="px-4 py-2 rounded-lg font-bold bg-slate-100 text-slate-700 hover:bg-slate-200 transition-all"
+                >
+                  {t('forum.viewMore')}
+                </button>
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>
@@ -471,12 +506,11 @@ export default function ForumPage() {
   const { questions, loading: questionsLoading } = useQuizData(SHEET_URL);
 
   const [activeTab, setActiveTab] = useState('mcq'); // 'mcq' | 'general'
-  const [showNotifPanel, setShowNotifPanel] = useState(false);
-  const [unreadCount, setUnreadCount] = useState(0);
 
   // MCQ tab state
   const [discussedQuestions, setDiscussedQuestions] = useState([]);
   const [mcqLoading, setMcqLoading] = useState(true);
+  const [mcqLimit, setMcqLimit] = useState(10);
   const [searchTerm, setSearchTerm] = useState('');
   const [sortBy, setSortBy] = useState('recent');
   const [selectedQuestion, setSelectedQuestion] = useState(null);
@@ -484,40 +518,103 @@ export default function ForumPage() {
   // General tab state
   const [posts, setPosts] = useState([]);
   const [postsLoading, setPostsLoading] = useState(false);
+  const [postLimit, setPostLimit] = useState(10);
   const [activePost, setActivePost] = useState(null); // postId
   const [showNewPost, setShowNewPost] = useState(false);
   const [postSearch, setPostSearch] = useState('');
   const [postCategory, setPostCategory] = useState('all');
 
-  // Subscribe to notifications
+  // Algolia search state (only used when user types a search query)
+  const [searchResults, setSearchResults] = useState([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [searchPage, setSearchPage] = useState(0);
+  const [searchNbPages, setSearchNbPages] = useState(0);
+  const [searchNbHits, setSearchNbHits] = useState(0);
+  const [searchError, setSearchError] = useState(null);
+  const [submittedSearch, setSubmittedSearch] = useState('');
+
   useEffect(() => {
-    if (!currentUser) return;
-    const unsub = forumService.subscribeToNotifications(currentUser.uid, (notifs) => {
-      setUnreadCount(notifs.filter(n => !n.read).length);
-    });
-    return () => unsub && unsub();
-  }, [currentUser]);
+    if (activeTab !== 'mcq') return;
+    loadDiscussedQuestions(mcqLimit);
+  }, [activeTab, mcqLimit]);
+  useEffect(() => {
+    if (activeTab !== 'general') return;
+    loadPosts(postLimit);
+  }, [activeTab, postLimit]);
 
-  useEffect(() => { loadDiscussedQuestions(); }, []);
-  useEffect(() => { if (activeTab === 'general') loadPosts(); }, [activeTab]);
-
-  async function loadDiscussedQuestions() {
+  async function loadDiscussedQuestions(limitCount = mcqLimit) {
     setMcqLoading(true);
     try {
-      const discussed = await forumService.getQuestionsWithComments();
+      const discussed = await forumService.getQuestionsWithComments(limitCount);
       setDiscussedQuestions(discussed);
     } catch { /* ignore */ }
     setMcqLoading(false);
   }
 
-  async function loadPosts() {
+  function viewMoreMcq() {
+    setMcqLimit((n) => n + 10);
+  }
+
+  async function loadPosts(limitCount = postLimit) {
     setPostsLoading(true);
     try {
-      const data = await forumService.getPosts({ limit: 50 });
+      const data = await forumService.getPosts({ limit: limitCount });
       setPosts(data);
     } catch { /* ignore */ }
     setPostsLoading(false);
   }
+
+  function viewMorePosts() {
+    setPostLimit((n) => n + 10);
+  }
+
+  // === Algolia search functions ===
+  const resetSearch = () => {
+    setSearchResults([]);
+    setSearchPage(0);
+    setSearchNbPages(0);
+    setSearchNbHits(0);
+    setSearchError(null);
+  };
+
+  const runSearch = useCallback(async (query, page = 0) => {
+    if (!query || !query.trim()) {
+      resetSearch();
+      return;
+    }
+    setSearchLoading(true);
+    setSearchError(null);
+    try {
+      const result = await forumService.searchPosts({ query: query.trim(), page, hitsPerPage: 10, hydrate: false });
+      setSearchResults((prev) => (page === 0 ? result.hits : [...prev, ...result.hits]));
+      setSearchPage(result.page);
+      setSearchNbPages(result.nbPages);
+      setSearchNbHits(result.nbHits);
+    } catch (e) {
+      setSearchError(e.message);
+    } finally {
+      setSearchLoading(false);
+    }
+  }, []);
+
+  const viewMoreSearch = () => {
+    if (searchPage + 1 < searchNbPages) {
+      runSearch(submittedSearch, searchPage + 1);
+    }
+  };
+
+  const submitSearch = () => {
+    const q = (postSearch || '').trim();
+    setSubmittedSearch(q);
+    resetSearch();
+    if (q) runSearch(q, 0);
+  };
+
+  const clearSearch = () => {
+    setPostSearch('');
+    setSubmittedSearch('');
+    resetSearch();
+  };
 
   const getQuestionDetails = (questionId) => questions.find(q => q.ID === questionId);
 
@@ -531,12 +628,14 @@ export default function ForumPage() {
     })
     .sort((a, b) => sortBy === 'recent' ? new Date(b.lastActivity) - new Date(a.lastActivity) : b.commentCount - a.commentCount);
 
-  const filteredPosts = posts
-    .filter(p => {
-      if (postCategory !== 'all' && p.category !== postCategory) return false;
-      if (!postSearch) return true;
-      return p.title?.toLowerCase().includes(postSearch.toLowerCase()) || p.content?.toLowerCase().includes(postSearch.toLowerCase());
-    });
+  const filteredPosts = (() => {
+    // If user is typing a search query, use Algolia results (already filtered/sorted)
+    if (submittedSearch.trim()) {
+      return searchResults;
+    }
+    // Otherwise, use client-side filter for category only
+    return posts.filter(p => postCategory === 'all' || p.category === postCategory);
+  })();
 
   const formatDate = (iso) => {
     const d = new Date(iso), now = new Date(), diffMs = now - d;
@@ -556,7 +655,7 @@ export default function ForumPage() {
     return (
       <div className="max-w-4xl mx-auto space-y-6">
         <PostDetail postId={activePost} currentUser={currentUser}
-          onBack={() => { setActivePost(null); loadPosts(); }} />
+          onBack={() => { setActivePost(null); loadPosts(postLimit); }} />
       </div>
     );
   }
@@ -579,23 +678,6 @@ export default function ForumPage() {
             </div>
           </div>
         </div>
-        {/* Notification Bell */}
-        {currentUser && (
-          <div className="relative">
-            <button onClick={() => setShowNotifPanel(v => !v)}
-              className="relative p-3 bg-white rounded-xl border-2 border-slate-200 hover:border-purple-400 transition-all shadow-sm">
-              {unreadCount > 0 ? <BellDot size={22} className="text-purple-600" /> : <Bell size={22} className="text-slate-600" />}
-              {unreadCount > 0 && (
-                <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center font-bold">
-                  {unreadCount > 9 ? '9+' : unreadCount}
-                </span>
-              )}
-            </button>
-            {showNotifPanel && (
-              <NotificationPanel userId={currentUser.uid} onClose={() => setShowNotifPanel(false)} />
-            )}
-          </div>
-        )}
       </div>
 
       {/* Tabs */}
@@ -669,6 +751,16 @@ export default function ForumPage() {
                     </div>
                   );
                 })}
+                {discussedQuestions.length >= mcqLimit && (
+                  <div className="pt-2 flex justify-center">
+                    <button
+                      onClick={viewMoreMcq}
+                      className="px-6 py-2 rounded-lg font-bold bg-slate-100 text-slate-700 hover:bg-slate-200 transition-all"
+                    >
+                      {t('forum.viewMore')}
+                    </button>
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -680,9 +772,27 @@ export default function ForumPage() {
             <div className="flex flex-col md:flex-row gap-4 items-start md:items-center">
               <div className="relative flex-1">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-                <input type="text" value={postSearch} onChange={e => setPostSearch(e.target.value)}
+                <input
+                  type="text"
+                  value={postSearch}
+                  onChange={e => setPostSearch(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') submitSearch();
+                    if (e.key === 'Escape') clearSearch();
+                  }}
                   placeholder={t('forum.searchPosts')}
                   className="w-full pl-10 pr-4 py-2.5 border-2 border-slate-200 rounded-lg focus:border-purple-400 outline-none" />
+                {postSearch.trim() && (
+                  <button
+                    type="button"
+                    onClick={clearSearch}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded-md hover:bg-slate-100 text-slate-500"
+                    aria-label="Clear search"
+                    title="Clear"
+                  >
+                    <X size={16} />
+                  </button>
+                )}
               </div>
               {/* Category filter */}
               <div className="flex gap-2">
@@ -739,6 +849,37 @@ export default function ForumPage() {
                     </div>
                   </div>
                 ))}
+                {/* Search UI: loading, error, result count, View more */}
+                {submittedSearch.trim() && (
+                  <div className="pt-2 space-y-2">
+                    {searchLoading && <div className="text-center text-sm text-slate-500">Searching...</div>}
+                    {searchError && <div className="text-center text-sm text-red-600">{searchError}</div>}
+                    {!searchLoading && !searchError && searchNbHits > 0 && (
+                      <div className="text-center text-xs text-slate-400">{searchNbHits} results</div>
+                    )}
+                    {!searchLoading && !searchError && searchPage + 1 < searchNbPages && (
+                      <div className="flex justify-center">
+                        <button
+                          onClick={viewMoreSearch}
+                          className="px-6 py-2 rounded-lg font-bold bg-slate-100 text-slate-700 hover:bg-slate-200 transition-all"
+                        >
+                          {t('forum.viewMore')}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+                {/* Non-search View more */}
+                {!submittedSearch.trim() && posts.length >= postLimit && (
+                  <div className="pt-2 flex justify-center">
+                    <button
+                      onClick={viewMorePosts}
+                      className="px-6 py-2 rounded-lg font-bold bg-slate-100 text-slate-700 hover:bg-slate-200 transition-all"
+                    >
+                      {t('forum.viewMore')}
+                    </button>
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -748,14 +889,14 @@ export default function ForumPage() {
       {/* MCQ Forum Modal */}
       {selectedQuestion && (
         <QuestionForum question={selectedQuestion}
-          onClose={() => { setSelectedQuestion(null); loadDiscussedQuestions(); }} />
+          onClose={() => { setSelectedQuestion(null); loadDiscussedQuestions(mcqLimit); }} />
       )}
 
       {/* New Post Modal */}
       {showNewPost && currentUser && (
         <NewPostModal currentUser={currentUser}
           onClose={() => setShowNewPost(false)}
-          onCreated={() => { setShowNewPost(false); loadPosts(); }} />
+          onCreated={() => { setShowNewPost(false); loadPosts(postLimit); }} />
       )}
     </div>
   );

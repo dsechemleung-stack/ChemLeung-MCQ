@@ -25,15 +25,22 @@ export default function Header() {
     const [showNotifPanel, setShowNotifPanel] = useState(false);
     const [unreadCount, setUnreadCount] = useState(0);
     const [notifs, setNotifs] = useState([]);
+    const [notifLimit, setNotifLimit] = useState(10);
 
     useEffect(() => {
-        if (!currentUser) return;
+        if (!currentUser || !showNotifPanel) return;
         const unsub = forumService.subscribeToNotifications(currentUser.uid, (data) => {
             setNotifs(data);
             setUnreadCount(data.filter(n => !n.read).length);
-        });
+        }, notifLimit);
         return () => unsub && unsub();
-    }, [currentUser]);
+    }, [currentUser, showNotifPanel, notifLimit]);
+
+    useEffect(() => {
+        if (!showNotifPanel) {
+            setNotifLimit(10);
+        }
+    }, [showNotifPanel]);
 
     const handleMarkNotifRead = async (id) => {
         try {
@@ -45,6 +52,21 @@ export default function Header() {
         if (!currentUser) return;
         try {
             await forumService.markAllNotificationsRead(currentUser.uid);
+        } catch { /* ignore */ }
+    };
+
+    const handleDeleteNotif = async (id) => {
+        try {
+            await forumService.deleteNotification(id);
+        } catch { /* ignore */ }
+    };
+
+    const handleDeleteAllNotifs = async () => {
+        if (!currentUser) return;
+        const ok = window.confirm(t('forum.deleteAllNotificationsConfirm') || 'Delete all notifications?');
+        if (!ok) return;
+        try {
+            await forumService.deleteAllNotifications(currentUser.uid, 200);
         } catch { /* ignore */ }
     };
 
@@ -269,6 +291,11 @@ export default function Header() {
                                                                 {t('forum.markAllRead')}
                                                             </button>
                                                         )}
+                                                        {notifs.length > 0 && (
+                                                            <button onClick={handleDeleteAllNotifs} className="text-xs text-rose-600 hover:underline font-semibold">
+                                                                {t('forum.deleteAll') || 'Delete all'}
+                                                            </button>
+                                                        )}
                                                         <button onClick={() => setShowNotifPanel(false)} className="p-1 hover:bg-slate-200 rounded"><X size={16} /></button>
                                                     </div>
                                                 </div>
@@ -277,30 +304,49 @@ export default function Header() {
                                                     {notifs.length === 0 ? (
                                                         <div className="text-center py-10 text-slate-400 text-sm">{t('forum.noNotificationsYet')}</div>
                                                     ) : (
-                                                        notifs.map(n => (
-                                                            <div
-                                                                key={n.id}
-                                                                onClick={() => handleMarkNotifRead(n.id)}
-                                                                className={`p-4 border-b cursor-pointer hover:bg-slate-50 transition-all ${!n.read ? 'bg-blue-50' : ''}`}
-                                                            >
-                                                                <div className="flex items-start gap-3">
-                                                                    <div className={`w-2 h-2 rounded-full mt-2 flex-shrink-0 ${!n.read ? 'bg-lab-blue' : 'bg-transparent'}`} />
-                                                                    <Avatar userId={n.senderId} displayName={n.senderDisplayName || t('common.someone')} size="xs" />
-                                                                    <div className="flex-1 min-w-0">
-                                                                        <p className="text-sm text-slate-800 font-medium leading-snug">
-                                                                            <span className="font-bold">{n.senderDisplayName || t('common.someone')}</span> {typeLabel(n)}
-                                                                        </p>
-                                                                        {n.previewText && (
-                                                                            <p className="text-xs text-slate-500 mt-1 truncate">"{n.previewText}"</p>
-                                                                        )}
-                                                                        {n.postTitle && (
-                                                                            <p className="text-xs text-lab-blue mt-0.5 truncate">→ {n.postTitle}</p>
-                                                                        )}
-                                                                        <p className="text-xs text-slate-400 mt-1">{formatAgo(n.createdAt)}</p>
+                                                        <>
+                                                            {notifs.map(n => (
+                                                                <div
+                                                                    key={n.id}
+                                                                    onClick={() => handleMarkNotifRead(n.id)}
+                                                                    className={`p-4 border-b cursor-pointer hover:bg-slate-50 transition-all ${!n.read ? 'bg-blue-50' : ''}`}
+                                                                >
+                                                                    <div className="flex items-start gap-3">
+                                                                        <div className={`w-2 h-2 rounded-full mt-2 flex-shrink-0 ${!n.read ? 'bg-lab-blue' : 'bg-transparent'}`} />
+                                                                        <Avatar userId={n.senderId} displayName={n.senderDisplayName || t('common.someone')} size="xs" />
+                                                                        <div className="flex-1 min-w-0">
+                                                                            <p className="text-sm text-slate-800 font-medium leading-snug">
+                                                                                <span className="font-bold">{n.senderDisplayName || t('common.someone')}</span> {typeLabel(n)}
+                                                                            </p>
+                                                                            {n.previewText && (
+                                                                                <p className="text-xs text-slate-500 mt-1 truncate">"{n.previewText}"</p>
+                                                                            )}
+                                                                            {n.postTitle && (
+                                                                                <p className="text-xs text-lab-blue mt-0.5 truncate">→ {n.postTitle}</p>
+                                                                            )}
+                                                                            <p className="text-xs text-slate-400 mt-1">{formatAgo(n.createdAt)}</p>
+                                                                        </div>
+                                                                        <button
+                                                                            onClick={(e) => { e.stopPropagation(); handleDeleteNotif(n.id); }}
+                                                                            className="p-1 hover:bg-slate-200 rounded text-slate-500 hover:text-rose-600"
+                                                                            title={t('forum.delete') || 'Delete'}
+                                                                        >
+                                                                            <X size={16} />
+                                                                        </button>
                                                                     </div>
                                                                 </div>
-                                                            </div>
-                                                        ))
+                                                            ))}
+                                                            {notifs.length >= notifLimit && (
+                                                                <div className="p-3 flex justify-center">
+                                                                    <button
+                                                                        onClick={() => setNotifLimit((n) => n + 10)}
+                                                                        className="px-4 py-2 rounded-lg font-bold bg-slate-100 text-slate-700 hover:bg-slate-200 transition-all"
+                                                                    >
+                                                                        {t('forum.viewMore')}
+                                                                    </button>
+                                                                </div>
+                                                            )}
+                                                        </>
                                                     )}
                                                 </div>
                                             </div>

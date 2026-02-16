@@ -26,7 +26,7 @@ export default function TokenLog() {
     
     setLoading(true);
     try {
-      const data = await getTokenHistory(currentUser.uid, 50);
+      const data = await getTokenHistory(currentUser.uid, 8);
       setHistory(data);
     } catch (error) {
       console.error('Error loading token history:', error);

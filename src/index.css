@@ -1,8 +1,5 @@
 @import "tailwindcss";
 
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@500;600;700;800&display=swap');
-@import url('https://fonts.googleapis.com/css2?family=Roboto+Condensed:wght@700;900&display=swap');
-
 @theme {
   --color-lab-blue: #1e3a8a;
   --color-carbon-grey: #374151;
@@ -1383,6 +1380,42 @@ div[dangerouslySetInnerHTML] {
   display: none;
  }
 
+ .m-lockin-btn-timed {
+  animation: m-fire-pulse 1s ease-in-out infinite;
+  border-color: rgba(239, 68, 68, 0.6) !important;
+  box-shadow: 
+    0 0 0 1px rgba(0, 0, 0, 0.34) inset,
+    0 0 20px rgba(239, 68, 68, 0.6),
+    0 0 40px rgba(239, 68, 68, 0.3) !important;
+}
+
+.m-lockin-btn-timed::before {
+  background-image:
+    repeating-linear-gradient(0deg, rgba(239, 68, 68, 0.00) 0px, rgba(239, 68, 68, 0.00) 10px, rgba(239, 68, 68, 0.04) 11px),
+    repeating-linear-gradient(90deg, rgba(239, 68, 68, 0.00) 0px, rgba(239, 68, 68, 0.00) 10px, rgba(239, 68, 68, 0.04) 11px);
+  opacity: 0.4;
+}
+
+.m-lockin-btn-timed::after {
+  background: linear-gradient(90deg, transparent, rgba(239, 68, 68, 0.3), transparent);
+  opacity: 0.6;
+}
+
+@keyframes m-fire-pulse {
+  0%, 100% {
+    box-shadow: 
+      0 0 0 1px rgba(0, 0, 0, 0.34) inset,
+      0 0 20px rgba(239, 68, 68, 0.6),
+      0 0 40px rgba(239, 68, 68, 0.3);
+  }
+  50% {
+    box-shadow: 
+      0 0 0 1px rgba(0, 0, 0, 0.34) inset,
+      0 0 30px rgba(239, 68, 68, 0.8),
+      0 0 60px rgba(239, 68, 68, 0.4);
+  }
+}
+
  .m-go-overlay {
   position: fixed;
   inset: 0;
@@ -1675,6 +1708,26 @@ div[dangerouslySetInnerHTML] {
  .m-dec-body--muted {
   margin-top: 10px;
   color: rgba(255, 255, 255, 0.58);
+ }
+
+ .m-dec-body--fire {
+  margin-top: 16px;
+  color: #fca5a5;
+  font-weight: 700;
+  font-size: clamp(16px, 2vw, 20px);
+  text-align: center;
+  animation: m-fire-glow 2s ease-in-out infinite;
+ }
+
+ @keyframes m-fire-glow {
+  0%, 100% {
+    color: #fca5a5;
+    text-shadow: 0 0 10px rgba(252, 165, 165, 0.5);
+  }
+  50% {
+    color: #f87171;
+    text-shadow: 0 0 20px rgba(248, 113, 113, 0.8);
+  }
  }
 
  .m-dec-value {

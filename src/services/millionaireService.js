@@ -1,4 +1,4 @@
-export const MILLIONAIRE_LEVELS = 15;
+export const MILLIONAIRE_LEVELS = 20;
 
 export function isValidMillionaireQuestion(q) {
   return !!(

@@ -1,0 +1,117 @@
+### What I’ll do
+To tell you what *actually* costs the most Firestore **reads** in your current app, I need to inspect where your frontend (and any Cloud Functions) are calling Firestore `getDoc/getDocs/onSnapshot/query` and what collections they hit (because rules alone don’t determine read volume; *your query patterns do*).
+
+I’m going to:
+1. Scan the codebase for Firestore read calls.
+2. Map them to collections/paths (e.g. `forum_posts`, `calendar_events`, `attempts`, etc.).
+3. Rank the top 10 *most likely read drivers* based on typical UI patterns (feeds, listeners, per-item fetches) and your usage.
+
+I’ll start by searching your code for Firestore read usage now.
+
+
+
+### How I’ll answer “what costs most reads”
+Rules tell me *what’s allowed*, but read cost comes from **your client query patterns**—especially:
+- **Real-time listeners** (`onSnapshot`) (re-read on every change)
+- **Wide queries** without tight `where/limit`
+- **Fallback full-collection reads** when an index is missing
+
+I’ve already found several high-impact read paths (forum/comments, notifications listener, SRS, calendar). Next I’ll quickly scan the rest of `src/` and `functions/` for any remaining `getDocs/getDoc/onSnapshot` usage, then rank the top 10 read drivers.
+
+
+
+
+## Top 10 things most likely costing you the most Firestore reads (based on your current code + rules)
+
+Firestore read cost is driven by **how many documents you read** and **how often you re-read them** (real-time listeners amplify this). From your codebase, these are the biggest read drivers:
+
+### 1) `comments` feed scans (very high)
+- **Where**: `forumService.getQuestionsWithComments(limitCount = 500)`
+- **Reads**: up to **500 docs per call** (every time this runs).
+- **Why expensive**: it reads the newest N comments, then aggregates client-side.
+- **Fix**: store per-question `commentCount/lastCommentAt` in a dedicated doc (or update the question doc), so you read **1 doc per question** (or paginate).
+
+### 2) Missing-index fallback full collection reads (can explode)
+You have multiple places that do this pattern:
+- `forumService.getCommentReplies()` fallback: `getDocs(collection(db,'comment_replies'))`
+- `forumService.getPosts()` fallback: reads posts without proper orderBy index
+- `forumService.getReplies()` fallback: `getDocs(collection(db,'forum_replies'))`
+- `forumService.getNotifications()` fallback: reads notifications then filters client-side
+
+**Why expensive**: if the query hits `failed-precondition` (missing composite index), you read the **entire collection** (potentially thousands of docs) just to filter in JS.
+
+**This is likely #1 in real billing if indexes are missing**.
+
+### 3) Notifications real-time listener (`onSnapshot`) (high + continuous)
+- **Where**: `forumService.subscribeToNotifications(userId, ..., limitCount=50)`
+- **Reads**:
+  - Initial load: up to **50 docs**
+  - Then re-reads on changes in that query window
+- **Why expensive**: frequent updates (likes/replies/system rewards) = frequent snapshots.
+- **Fix**: reduce `limit`, only subscribe when the notifications UI is open, or switch to polling with `getDocs` when needed.
+
+### 4) `users/{uid}` real-time profile listener (moderate but constant)
+- **Where**: `AuthContext.setupProfileListener(uid)` uses `onSnapshot(doc(db,'users',uid))`
+- **Reads**: 1 doc initial + 1 per user profile update.
+- **Why it adds up**: if you also update user doc often (tokens, inventory, streak, etc.), you’ll cause many reads.
+- **Fix**: keep it, but avoid writing to `users/{uid}` too frequently; split “fast-changing” counters into another doc if needed.
+
+### 5) Token system transactions cause reads (moderate, tied to writes)
+- **Where**: `tokenService.awardTokens/deductTokens/purchaseItem` -> `runTransaction(... transaction.get(userRef) ...)`
+- **Reads**: **1 user doc read per transaction**
+- **Why it adds up**: if you award tokens a lot (per action), this becomes a steady read stream.
+
+### 6) Calendar monthly load (`calendar_events` range query) (moderate → high)
+- **Where**: [calendarService.getCalendarData(userId, year, month)](cci:1://file:///Users/Hugo/Desktop/chemleungmcq-platform-2/src/services/calendarService.js:33:0-95:1)
+- **Reads**: reads **all events in the month** (could be many because study plans create multiple docs).
+- **Fix**: store events in subcollection per user (e.g. `users/{uid}/calendar_events`) and/or add tighter limits, or cache month results client-side.
+
+### 7) Calendar cascade delete (spiky high)
+- **Where**: [calendarService.deleteEvent()](cci:1://file:///Users/Hugo/Desktop/chemleungmcq-platform-2/src/services/calendarService.js:318:0-364:1) queries children by `linkedEventId` and deletes them.
+- **Reads**: reads **all child events** for that parent before deleting.
+- **Fix**: acceptable for admin-like action, but note it’s a big spike if there are many generated suggestions.
+
+### 8) SRS “get all cards” queries (can be high)
+- **Where**:
+  - [srsService.getAllCards(userId)](cci:1://file:///Users/Hugo/Desktop/chemleungmcq-platform-2/src/services/srsService.js:116:0-127:1)
+  - [srsService.getReviewStats(userId)](cci:1://file:///Users/Hugo/Desktop/chemleungmcq-platform-2/src/services/srsService.js:357:0-393:1) (reads all cards)
+  - [srsService.updateDueFlags(userId)](cci:1://file:///Users/Hugo/Desktop/chemleungmcq-platform-2/src/services/srsService.js:403:0-430:1) (reads all active cards)
+- **Reads**: **all cards** for that user (potentially large over time).
+- **Fix**:
+  - Prefer [getDueCards()](cci:1://file:///Users/Hugo/Desktop/chemleungmcq-platform-2/src/services/srsService.js:88:0-114:1) for day-to-day UI (already JIT).
+  - Keep “stats” endpoints off the main screen / run less often / compute incrementally.
+
+### 9) Review analytics reads too wide then filters client-side
+- **Where**: [srsService.getRecentReviewAttempts(userId, days=30)](cci:1://file:///Users/Hugo/Desktop/chemleungmcq-platform-2/src/services/srsService.js:129:0-152:1)
+- **Reads**: reads **all** `review_attempts` for user, then filters in JS.
+- **Fix**: add `where('attemptedAt','>=', sinceIso)` and an index (store `attemptedAt` in sortable format—ISO string is OK).
+
+### 10) Avatar / profile helper per-component `getDoc(users/{id})` (death-by-1000-cuts)
+- **Where**:
+  - [Avatar.jsx](cci:7://file:///Users/Hugo/Desktop/chemleungmcq-platform-2/src/components/Avatar.jsx:0:0-0:0) does `getDoc(doc(db,'users', userId))`
+  - [userProfileHelper.getUserProfileData(userId)](cci:1://file:///Users/Hugo/Desktop/chemleungmcq-platform-2/src/utils/userProfileHelper.jsx:11:0-48:1) does same
+- **Reads**: **1 read per component instance** (e.g. leaderboard list of 50 users = 50 reads).
+- **Fix**:
+  - Pass down user display info from the parent list query (denormalize into leaderboard entries already exists in your function!).
+  - Cache user docs in-memory.
+  - Avoid fetching if you already have `equippedProfilePic/theme/displayName`.
+
+---
+
+## Quick “rules-based” note
+Your rules allow **public reads** for:
+- `attempts`, `forum_posts`, `forum_replies`, `comments` (`allow read: if true`)
+This doesn’t directly increase reads, but it makes it *easier for the UI to accidentally over-read* (feeds, admin views, etc.). Your biggest savings will come from fixing **fallback full scans** and **per-item user doc fetches**.
+
+---
+
+## If you want the *real* top-10 from production billing
+The only authoritative answer is:
+- **Firebase Console -> Firestore -> Usage**
+- **GCP Billing -> SKU-level breakdown**
+- Add **client-side logging** around every `getDocs/getDoc/onSnapshot` to count docs returned.
+
+If you tell me which screens users open most (Forum? Calendar? SRS? Leaderboard?), I can re-rank these into *your* likely real-world top 10 and propose the highest ROI fixes first.
+
+## Status
+- **Done**: Identified and ranked the main read-heavy code paths in your current repo and explained why they cost reads.
