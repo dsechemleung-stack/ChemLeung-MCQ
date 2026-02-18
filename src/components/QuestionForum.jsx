@@ -44,6 +44,33 @@ export default function QuestionForum({ question, onClose }) {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [, forceUpdate] = useState(0); // for timer re-render
+  const [lightboxSrc, setLightboxSrc] = useState(null);
+
+  const handleRichContentClick = (e) => {
+    const target = e.target;
+    if (!(target instanceof Element)) return;
+
+    const enlargeBtn = target.closest('[data-enlarge-image="true"]');
+    if (enlargeBtn) {
+      const src = enlargeBtn.getAttribute('data-image-src');
+      if (src) {
+        e.preventDefault();
+        e.stopPropagation();
+        setLightboxSrc(src);
+      }
+      return;
+    }
+
+    const img = target.closest('img');
+    if (img) {
+      const src = img.getAttribute('src');
+      if (src) {
+        e.preventDefault();
+        e.stopPropagation();
+        setLightboxSrc(src);
+      }
+    }
+  };
 
   const loadComments = useCallback(async () => {
     setLoading(true);
@@ -210,9 +237,45 @@ export default function QuestionForum({ question, onClose }) {
     return date.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
   };
 
+  const options = [
+    { key: 'A', text: question.OptionA },
+    { key: 'B', text: question.OptionB },
+    { key: 'C', text: question.OptionC },
+    { key: 'D', text: question.OptionD },
+  ].filter((o) => o.text !== null && o.text !== undefined && String(o.text).trim() !== '');
+
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4 overflow-y-auto">
       <div className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+        {lightboxSrc && (
+          <div
+            className="fixed inset-0 z-[60] bg-black/70 flex items-center justify-center p-4"
+            onClick={() => setLightboxSrc(null)}
+            role="dialog"
+            aria-modal="true"
+          >
+            <div
+              className="relative max-w-5xl w-full"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <button
+                type="button"
+                onClick={() => setLightboxSrc(null)}
+                className="absolute -top-10 right-0 text-white/90 hover:text-white text-sm font-bold"
+              >
+                Close
+              </button>
+              <div className="bg-white rounded-2xl p-3 shadow-2xl">
+                <img
+                  src={lightboxSrc}
+                  alt="Enlarged diagram"
+                  className="w-full h-auto max-h-[80vh] object-contain rounded-xl"
+                />
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Header */}
         <div className="sticky top-0 bg-white border-b-2 border-slate-200 p-6 rounded-t-2xl z-10">
           <div className="flex justify-between items-start">
@@ -233,10 +296,37 @@ export default function QuestionForum({ question, onClose }) {
         {/* Question */}
         <div className="p-6 bg-slate-50 border-b-2 border-slate-200">
           <div className="prose prose-slate max-w-none text-base text-slate-800 font-medium whitespace-pre-wrap"
+            onClick={handleRichContentClick}
             dangerouslySetInnerHTML={{ __html: question.Question }} />
           {question.Pictureurl && (
             <div className="mt-4 flex justify-center">
-              <img src={question.Pictureurl} alt="Question Diagram" className="max-w-full h-auto max-h-[200px] object-contain rounded-lg border-2 border-slate-200" />
+              <img
+                src={question.Pictureurl}
+                alt="Question Diagram"
+                className="max-w-full h-auto max-h-[200px] object-contain rounded-lg border-2 border-slate-200 cursor-zoom-in"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setLightboxSrc(question.Pictureurl);
+                }}
+              />
+            </div>
+          )}
+
+          {options.length > 0 && (
+            <div className="mt-5 grid grid-cols-1 gap-2">
+              {options.map((opt) => (
+                <div key={opt.key} className="flex items-start gap-3 p-3 rounded-xl border-2 border-slate-200 bg-white">
+                  <div className="w-8 h-8 flex-shrink-0 flex items-center justify-center rounded-lg font-black bg-slate-100 text-slate-600">
+                    {opt.key}
+                  </div>
+                  <div
+                    className="flex-1 text-sm text-slate-800 whitespace-pre-wrap prose prose-slate max-w-none"
+                    onClick={handleRichContentClick}
+                    dangerouslySetInnerHTML={{ __html: String(opt.text) }}
+                  />
+                </div>
+              ))}
             </div>
           )}
         </div>

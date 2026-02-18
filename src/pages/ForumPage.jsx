@@ -17,6 +17,13 @@ const SHEET_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTK36yaUN-NMC
 
 const CATEGORIES = ['general', 'question', 'announcement'];
 
+function categoryLabel(t, cat) {
+  if (cat === 'general') return t('forum.categoryGeneral');
+  if (cat === 'question') return t('forum.categoryQuestion');
+  if (cat === 'announcement') return t('forum.categoryAnnouncement');
+  return String(cat || '').toUpperCase();
+}
+
 // ── Notification Panel ────────────────────────────────────────────────────────
 function NotificationPanel({ userId, onClose }) {
   const { t, tf } = useLanguage();
@@ -345,7 +352,7 @@ function PostDetail({ postId, currentUser, onBack }) {
             <div className="flex-1">
               <div className="flex items-center gap-2 mb-2">
                 <span className={`text-xs font-bold px-2 py-1 rounded-full ${categoryColor[post.category] || categoryColor.general}`}>
-                  {post.category?.toUpperCase()}
+                  {categoryLabel(t, post.category)}
                 </span>
                 {post.edited && <span className="text-xs text-slate-400 italic">({t('forum.edited')})</span>}
               </div>
@@ -509,7 +516,7 @@ function NewPostModal({ currentUser, onClose, onCreated }) {
               {CATEGORIES.map(cat => (
                 <button key={cat} onClick={() => setCategory(cat)}
                   className={`px-3 py-1.5 rounded-full text-xs font-bold border-2 transition-all ${category === cat ? catColors[cat] : 'border-slate-200 text-slate-500 hover:border-slate-300'}`}>
-                  {cat.charAt(0).toUpperCase() + cat.slice(1)}
+                  {categoryLabel(t, cat)}
                 </button>
               ))}
             </div>
@@ -772,6 +779,35 @@ export default function ForumPage() {
                 {filteredMcqQuestions.map(dq => {
                   const qd = getQuestionDetails(dq.questionId);
                   if (!qd) return null;
+
+                  const embeddedImgSrc = (() => {
+                    const html = String(qd.Question || '');
+                    const m = html.match(/<img[^>]+src=["']([^"']+)["']/i);
+                    return m ? m[1] : null;
+                  })();
+
+                  const startsWithImage = (() => {
+                    const html = String(qd.Question || '').trim();
+                    return /^<img\b/i.test(html) || /^<span[^>]*>\s*<img\b/i.test(html);
+                  })();
+
+                  const previewImgSrc = startsWithImage ? (qd.Pictureurl || embeddedImgSrc) : null;
+
+                  const firstSentence = (() => {
+                    const rawHtml = String(qd.Question || '');
+                    const text = rawHtml
+                      .replace(/<br\s*\/?>/gi, '\n')
+                      .replace(/<[^>]*>/g, ' ')
+                      .replace(/&nbsp;/g, ' ')
+                      .replace(/&amp;/g, '&')
+                      .replace(/&lt;/g, '<')
+                      .replace(/&gt;/g, '>')
+                      .replace(/\s+/g, ' ')
+                      .trim();
+                    if (!text) return '';
+                    const m = text.match(/(.+?[\.\?\!])\s/);
+                    return (m ? m[1] : text).slice(0, 160);
+                  })();
                   return (
                     <div key={dq.questionId} onClick={() => setSelectedQuestion(qd)}
                       className="p-4 rounded-xl border-2 border-slate-100 hover:border-purple-200 hover:bg-purple-50 transition-all cursor-pointer">
@@ -781,8 +817,21 @@ export default function ForumPage() {
                             <span className="bg-blue-100 text-lab-blue px-2 py-1 rounded text-xs font-bold">{qd.Topic}</span>
                             {qd.DSEcode && <span className="bg-slate-100 text-slate-600 px-2 py-1 rounded text-xs font-bold">{qd.DSEcode}</span>}
                           </div>
-                          <div className="text-slate-700 font-medium mb-2 line-clamp-2"
-                            dangerouslySetInnerHTML={{ __html: qd.Question.substring(0, 150) + '...' }} />
+                          {previewImgSrc ? (
+                            <div className="mb-3">
+                              <img
+                                src={previewImgSrc}
+                                alt="Question preview"
+                                className="w-full max-w-[420px] h-auto max-h-[120px] object-contain rounded-lg border border-slate-200 bg-white"
+                                loading="lazy"
+                                decoding="async"
+                              />
+                            </div>
+                          ) : (
+                            <div className="text-slate-700 font-medium mb-2 line-clamp-2">
+                              {firstSentence || '...'}
+                            </div>
+                          )}
                           <div className="flex items-center gap-4 text-sm text-slate-500">
                             <div className="flex items-center gap-1"><MessageCircle size={14} /><span className="font-semibold">{dq.commentCount}</span><span>{t('forum.comments')}</span></div>
                             <div className="flex items-center gap-1"><Clock size={14} /><span>{formatDate(dq.lastActivity)}</span></div>
@@ -843,7 +892,7 @@ export default function ForumPage() {
                 {['all', ...CATEGORIES].map(cat => (
                   <button key={cat} onClick={() => setPostCategory(cat)}
                     className={`px-3 py-2 rounded-lg text-xs font-bold border-2 transition-all ${postCategory === cat ? 'border-purple-500 bg-purple-50 text-purple-700' : 'border-slate-200 text-slate-600 hover:border-slate-300'}`}>
-                    {cat === 'all' ? t('forum.all') : cat.charAt(0).toUpperCase() + cat.slice(1)}
+                    {cat === 'all' ? t('forum.all') : categoryLabel(t, cat)}
                   </button>
                 ))}
               </div>
@@ -877,7 +926,7 @@ export default function ForumPage() {
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-1.5">
                           <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${catColors[post.category] || catColors.general}`}>
-                            {post.category?.toUpperCase()}
+                            {categoryLabel(t, post.category)}
                           </span>
                           {post.edited && <span className="text-xs text-slate-400 italic">({t('forum.edited')})</span>}
                         </div>

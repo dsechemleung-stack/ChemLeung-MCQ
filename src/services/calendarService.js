@@ -20,6 +20,7 @@ import {
 } from 'firebase/firestore';
 import { performanceService } from './performanceService';
 import { getNow } from '../utils/timeTravel';
+import { formatHKDateKey } from '../utils/hkTime';
 
 export const EVENT_TYPES = {
   MAJOR_EXAM: 'major_exam',
@@ -380,7 +381,7 @@ export async function scheduleSpacedRepetition(userId, params) {
     const { srsService } = await import('./srsService');
     
     // Schedule only cards due exactly today (avoid scheduling a large overdue backlog)
-    const todayStr = getNow().toISOString().split('T')[0];
+    const todayStr = formatHKDateKey(getNow());
     const dueCards = await srsService.getCardsDueOnDate(userId, todayStr);
     
     if (dueCards.length === 0) {

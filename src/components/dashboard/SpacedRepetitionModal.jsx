@@ -1,4 +1,5 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { X, Play, Eye, CheckSquare, Filter, Tag, Layers, ArrowRight, Timer, Zap } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { srsService } from '../../services/srsService';
@@ -22,36 +23,62 @@ import { getNow } from '../../utils/timeTravel';
 export default function SpacedRepetitionModal({ 
   userId,
   questions = [],
+  initialCards = null,
+  embedded = false,
+  settingsOnly = false,
+  maxCardsToLoad = 50,
   onClose, 
   onStartReview 
 }) {
   const { t, tf } = useLanguage();
+  const safeOnClose = typeof onClose === 'function' ? onClose : () => {};
   // Review modes: '5-mistake' (default), 'single', 'batch'
   const [reviewMode, setReviewMode] = useState('5-mistake');
-  const [questionCount, setQuestionCount] = useState(5);
+  const [questionCount, setQuestionCount] = useState(10);
   const [selectedTopicFilters, setSelectedTopicFilters] = useState([]);
   const [selectedSubtopicFilters, setSelectedSubtopicFilters] = useState([]);
+  const [allTopicsSelected, setAllTopicsSelected] = useState(true);
+  const [allSubtopicsSelected, setAllSubtopicsSelected] = useState(true);
   const [enableTimer, setEnableTimer] = useState(true);
   const [timedMode, setTimedMode] = useState(true);
   const [dueCards, setDueCards] = useState([]);
+  const [totalDueCount, setTotalDueCount] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
   const [selectedCardIds, setSelectedCardIds] = useState(new Set());
   const [overdueCount, setOverdueCount] = useState(0);
+  const [batchFiltersVisuallyCleared, setBatchFiltersVisuallyCleared] = useState(false);
 
-  const MAX_DUE_CARDS_TO_LOAD = 50;
+  const didInitTopicFiltersRef = useRef(false);
+  const didInitSubtopicFiltersRef = useRef(false);
+
+  const MAX_DUE_CARDS_TO_LOAD = Math.max(1, Number(maxCardsToLoad || 0) || 50);
 
   // Load due cards on mount
   useEffect(() => {
+    if (Array.isArray(initialCards)) {
+      const all = initialCards;
+      setTotalDueCount(all.filter((c) => !c?.completed).length);
+      setDueCards(all.slice(0, MAX_DUE_CARDS_TO_LOAD));
+      setOverdueCount(0);
+      setSelectedCardIds(new Set(all.slice(0, MAX_DUE_CARDS_TO_LOAD).map(card => card.id)));
+      setError(null);
+      setIsLoading(false);
+      return;
+    }
+
+    setTotalDueCount(null);
+
     const loadDueCards = async () => {
       try {
         setIsLoading(true);
-        const todayStr = getNow().toISOString().split('T')[0];
         const [cards, overdue] = await Promise.all([
-          srsService.getCardsDueOnDate(userId, todayStr, { limit: MAX_DUE_CARDS_TO_LOAD }),
+          // Include due + overdue cards (<= today) so users always see what needs review.
+          srsService.getDueCards(userId, getNow(), { limit: MAX_DUE_CARDS_TO_LOAD }),
           srsService.getOverdueCount(userId, getNow())
         ]);
         setDueCards(cards);
+        setTotalDueCount(null);
         setOverdueCount(overdue);
         
         // Auto-select all cards initially for batch mode
@@ -67,7 +94,7 @@ export default function SpacedRepetitionModal({
     if (userId) {
       loadDueCards();
     }
-  }, [userId]);
+  }, [userId, initialCards]);
 
   // Get all non-completed reviews
   const availableReviews = useMemo(() => {
@@ -83,27 +110,51 @@ export default function SpacedRepetitionModal({
     return Array.from(topics).sort();
   }, [availableReviews]);
 
+  const topicCounts = useMemo(() => {
+    const counts = {};
+    availableReviews.forEach((card) => {
+      const k = card?.topic;
+      if (!k) return;
+      counts[k] = (counts[k] || 0) + 1;
+    });
+    return counts;
+  }, [availableReviews]);
+
   // Get subtopics based on selected topics
   const availableSubtopics = useMemo(() => {
     const subtopics = new Set();
     availableReviews.forEach(card => {
       if (card.subtopic) {
-        if (selectedTopicFilters.length === 0 || selectedTopicFilters.includes(card.topic)) {
+        if (allTopicsSelected || selectedTopicFilters.includes(card.topic)) {
           subtopics.add(card.subtopic);
         }
       }
     });
     return Array.from(subtopics).sort();
-  }, [availableReviews, selectedTopicFilters]);
+  }, [availableReviews, selectedTopicFilters, allTopicsSelected]);
+
+  const subtopicCounts = useMemo(() => {
+    const counts = {};
+    availableReviews.forEach((card) => {
+      const k = card?.subtopic;
+      if (!k) return;
+      if (!(allTopicsSelected || selectedTopicFilters.includes(card.topic))) return;
+      counts[k] = (counts[k] || 0) + 1;
+    });
+    return counts;
+  }, [availableReviews, allTopicsSelected, selectedTopicFilters]);
 
   // Filtered reviews based on topic/subtopic selection
   const filteredReviews = useMemo(() => {
     return availableReviews.filter(card => {
-      if (selectedTopicFilters.length > 0 && !selectedTopicFilters.includes(card.topic)) return false;
-      if (selectedSubtopicFilters.length > 0 && !selectedSubtopicFilters.includes(card.subtopic)) return false;
+      if (!allTopicsSelected && !selectedTopicFilters.includes(card.topic)) return false;
+      if (!allSubtopicsSelected && !selectedSubtopicFilters.includes(card.subtopic)) return false;
       return true;
     });
-  }, [availableReviews, selectedTopicFilters, selectedSubtopicFilters]);
+  }, [availableReviews, selectedTopicFilters, selectedSubtopicFilters, allTopicsSelected, allSubtopicsSelected]);
+
+  const batchHasNoSelectedCards = reviewMode === 'batch' && selectedCardIds.size === 0;
+  const shouldVisuallyClearBatchFilters = reviewMode === 'batch' && batchFiltersVisuallyCleared && batchHasNoSelectedCards;
 
   // Group due cards by date for display
   const groupedByDate = useMemo(() => {
@@ -118,40 +169,67 @@ export default function SpacedRepetitionModal({
     return groups;
   }, [filteredReviews]);
 
-  // Auto-select all topics in batch mode
+  // Default filters: ALL topics/subtopics on first load.
   useEffect(() => {
-    if (reviewMode === 'batch' && selectedTopicFilters.length === 0 && availableTopics.length > 0) {
-      setSelectedTopicFilters(availableTopics);
+    if (!didInitTopicFiltersRef.current && availableTopics.length > 0) {
+      didInitTopicFiltersRef.current = true;
+      setAllTopicsSelected(true);
+      setSelectedTopicFilters([]);
     }
-  }, [reviewMode, availableTopics]);
+  }, [availableTopics]);
 
-  // Auto-select all subtopics when topics change
   useEffect(() => {
-    if (reviewMode === 'batch' && availableSubtopics.length > 0) {
-      setSelectedSubtopicFilters(availableSubtopics);
+    if (!didInitSubtopicFiltersRef.current && availableSubtopics.length > 0) {
+      didInitSubtopicFiltersRef.current = true;
+      setAllSubtopicsSelected(true);
+      setSelectedSubtopicFilters([]);
     }
-  }, [selectedTopicFilters, availableSubtopics, reviewMode]);
+  }, [availableSubtopics]);
 
   // Adjust question count when filtered reviews change
   useEffect(() => {
-    if (questionCount > filteredReviews.length) {
-      setQuestionCount(filteredReviews.length);
-    }
+    const len = filteredReviews.length;
+    if (len <= 0) return;
+    setQuestionCount((prev) => {
+      const nextDefault = 10;
+      if (prev == null || Number.isNaN(prev) || prev < 1) return Math.min(nextDefault, len);
+      if (prev > len) return len;
+      return prev;
+    });
   }, [filteredReviews.length]);
 
   const toggleTopicFilter = (topic) => {
-    setSelectedTopicFilters(prev => 
-      prev.includes(topic) ? prev.filter(t => t !== topic) : [...prev, topic]
-    );
+    if (shouldVisuallyClearBatchFilters) {
+      setBatchFiltersVisuallyCleared(false);
+      setAllTopicsSelected(false);
+      setSelectedTopicFilters([topic]);
+      return;
+    }
+    setSelectedTopicFilters((prev) => {
+      const base = allTopicsSelected ? availableTopics : prev;
+      const next = base.includes(topic) ? base.filter((t) => t !== topic) : [...base, topic];
+      setAllTopicsSelected(false);
+      return next;
+    });
   };
 
   const toggleSubtopicFilter = (subtopic) => {
-    setSelectedSubtopicFilters(prev => 
-      prev.includes(subtopic) ? prev.filter(s => s !== subtopic) : [...prev, subtopic]
-    );
+    if (shouldVisuallyClearBatchFilters) {
+      setBatchFiltersVisuallyCleared(false);
+      setAllSubtopicsSelected(false);
+      setSelectedSubtopicFilters([subtopic]);
+      return;
+    }
+    setSelectedSubtopicFilters((prev) => {
+      const base = allSubtopicsSelected ? availableSubtopics : prev;
+      const next = base.includes(subtopic) ? base.filter((s) => s !== subtopic) : [...base, subtopic];
+      setAllSubtopicsSelected(false);
+      return next;
+    });
   };
 
   const toggleCardSelection = (cardId) => {
+    if (batchFiltersVisuallyCleared) setBatchFiltersVisuallyCleared(false);
     setSelectedCardIds(prev => {
       const newSet = new Set(prev);
       if (newSet.has(cardId)) {
@@ -164,11 +242,17 @@ export default function SpacedRepetitionModal({
   };
 
   const toggleAllCards = () => {
-    if (selectedCardIds.size === filteredReviews.length) {
+    const allFilteredSelected =
+      filteredReviews.length > 0 && filteredReviews.every((card) => selectedCardIds.has(card.id));
+
+    if (allFilteredSelected) {
       setSelectedCardIds(new Set());
-    } else {
-      setSelectedCardIds(new Set(filteredReviews.map(card => card.id)));
+      setBatchFiltersVisuallyCleared(true);
+      return;
     }
+
+    setSelectedCardIds(new Set(filteredReviews.map(card => card.id)));
+    setBatchFiltersVisuallyCleared(false);
   };
 
   const selectTopicsUpTo = (targetTopic) => {
@@ -198,7 +282,11 @@ export default function SpacedRepetitionModal({
       // For single question mode, use the first due card
       selectedCards = filteredReviews.slice(0, 1);
     } else { // batch
-      selectedCards = filteredReviews.filter(card => selectedCardIds.has(card.id));
+      if (settingsOnly) {
+        selectedCards = getRandomQuestions(Math.min(questionCount, filteredReviews.length));
+      } else {
+        selectedCards = filteredReviews.filter(card => selectedCardIds.has(card.id));
+      }
     }
     
     if (selectedCards.length === 0) {
@@ -215,6 +303,15 @@ export default function SpacedRepetitionModal({
       easeFactor: card.easeFactor
     }))));
 
+    const eventIds = selectedCards
+      .map((c) => c.eventId)
+      .filter(Boolean);
+    if (eventIds.length > 0) {
+      localStorage.setItem('quiz_event_ids', JSON.stringify(eventIds));
+    } else {
+      localStorage.removeItem('quiz_event_ids');
+    }
+
     const questionIds = selectedCards.map(card => card.questionId);
     const selectedQuestions = questions.filter(q => questionIds.includes(q.ID));
 
@@ -228,62 +325,63 @@ export default function SpacedRepetitionModal({
     localStorage.setItem('quiz_timer_enabled', String(enableTimer));
     localStorage.setItem('quiz_is_timed_mode', String(timedMode));
     localStorage.setItem('quiz_review_mode', reviewMode);
-    
+
+    if (typeof onStartReview === 'function') {
+      onStartReview(reviewMode, questionIds);
+      return;
+    }
+
     window.location.href = '/quiz';
   };
 
   const effectiveQuestionCount = reviewMode === 'single' 
     ? 1 
     : reviewMode === 'batch'
-    ? selectedCardIds.size
+    ? (settingsOnly ? Math.min(questionCount, filteredReviews.length) : selectedCardIds.size)
     : Math.min(questionCount, filteredReviews.length);
 
-  if (isLoading) {
-    return (
-      <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-        <div className="bg-white rounded-2xl p-8 shadow-2xl">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600 mx-auto"></div>
-          <p className="text-center mt-4 text-slate-600">{t('srs.loadingDueCards')}</p>
-        </div>
+  const modalContent = isLoading ? (
+    <div className={embedded ? "w-full" : "fixed inset-0 bg-black/50 z-[9999] flex items-center justify-center p-4"}>
+      <div className={embedded ? "bg-white rounded-2xl p-8 shadow-lg border-2 border-slate-100" : "bg-white rounded-2xl p-8 shadow-2xl"}>
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600 mx-auto"></div>
+        <p className="text-center mt-4 text-slate-600">{t('srs.loadingDueCards')}</p>
       </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-        <div className="bg-white rounded-2xl p-8 shadow-2xl max-w-md">
-          <div className="text-red-600 text-center mb-4">⚠️</div>
-          <p className="text-center text-red-600 font-semibold">{error}</p>
-          <button
-            onClick={onClose}
+    </div>
+  ) : error ? (
+    <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-md mx-auto">
+      <div className="text-red-600 text-center mb-4">⚠️</div>
+      <p className="text-center text-red-600 font-semibold">{error}</p>
+      {!embedded && (
+        <button
+            onClick={safeOnClose}
             className="mt-6 w-full px-4 py-2 bg-slate-200 hover:bg-slate-300 rounded-lg font-semibold transition-all"
           >
             {t('common.close')}
           </button>
-        </div>
-      </div>
-    );
-  }
-
-  return (
+      )}
+    </div>
+  ) : (
     <div 
-      className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
-      onClick={onClose}
+      className={embedded ? "w-full" : "fixed inset-0 bg-black/50 z-[9999] flex items-center justify-center p-4"}
+      onClick={embedded ? undefined : safeOnClose}
     >
       <motion.div
         initial={{ opacity: 0, scale: 0.95 }}
         animate={{ opacity: 1, scale: 1 }}
         exit={{ opacity: 0, scale: 0.95 }}
         onClick={(e) => e.stopPropagation()}
-        className="bg-white rounded-2xl shadow-2xl max-w-5xl w-full max-h-[90vh] overflow-hidden flex flex-col"
+        className={embedded
+          ? "bg-white rounded-2xl shadow-lg border-2 border-slate-100 w-full overflow-hidden flex flex-col"
+          : "bg-white rounded-2xl shadow-2xl max-w-5xl w-full max-h-[90vh] overflow-hidden flex flex-col"}
       >
         {/* Header */}
         <div className="border-b p-6 flex justify-between items-center flex-shrink-0 bg-gradient-to-r from-purple-50 to-pink-50">
           <div>
             <h2 className="text-2xl font-black text-slate-800">{t('srs.title')}</h2>
             <p className="text-sm text-slate-600 mt-1">
-              {tf('srs.questionsNeedReviewCount', { count: availableReviews.length })}
+              {totalDueCount != null
+                ? tf('srs.questionsNeedReviewShownOutOfTotal', { shown: availableReviews.length, total: totalDueCount })
+                : tf('srs.questionsNeedReviewCount', { count: availableReviews.length })}
             </p>
             {overdueCount > 0 && (
               <p className="text-xs text-red-600 font-bold mt-1">
@@ -291,9 +389,11 @@ export default function SpacedRepetitionModal({
               </p>
             )}
           </div>
-          <button onClick={onClose} className="p-2 hover:bg-white/50 rounded-lg transition-all">
-            <X size={24} />
-          </button>
+          {!embedded && (
+            <button onClick={safeOnClose} className="p-2 hover:bg-white/50 rounded-lg transition-all">
+              <X size={24} />
+            </button>
+          )}
         </div>
 
         <div className="p-6 space-y-5 overflow-y-auto flex-1">
@@ -419,6 +519,31 @@ export default function SpacedRepetitionModal({
             </div>
           )}
 
+          {reviewMode === 'batch' && settingsOnly && (
+            <div className="bg-gradient-to-r from-indigo-50 to-blue-50 rounded-xl p-5 border-2 border-indigo-200">
+              <label className="block text-sm font-black text-indigo-900 mb-3 flex items-center gap-2">
+                <CheckSquare size={16} />
+                {t('srs.numberOfQuestions')}
+              </label>
+              <div className="flex items-center gap-4 mb-3">
+                <input
+                  type="range"
+                  min="1"
+                  max={Math.max(1, filteredReviews.length)}
+                  value={Math.min(questionCount, Math.max(1, filteredReviews.length))}
+                  onChange={(e) => setQuestionCount(parseInt(e.target.value))}
+                  className="flex-1 h-2 bg-indigo-200 rounded-lg appearance-none cursor-pointer"
+                />
+                <div className="bg-white px-4 py-2 rounded-lg border border-indigo-200 font-black text-indigo-900 min-w-[80px] text-center">
+                  {Math.min(questionCount, filteredReviews.length)}
+                </div>
+              </div>
+              <p className="text-xs text-indigo-700 font-semibold">
+                {tf('srs.questionsNeedReviewShownOutOfTotal', { shown: Math.min(questionCount, filteredReviews.length), total: filteredReviews.length })}
+              </p>
+            </div>
+          )}
+
           {/* Timer Settings */}
           <div className="bg-blue-50 rounded-xl p-5 border-2 border-blue-200">
             <div className="flex items-center gap-2 mb-4">
@@ -446,7 +571,7 @@ export default function SpacedRepetitionModal({
                   )}
                 </div>
                 <span className={`font-bold flex-1 text-left ${enableTimer ? 'text-blue-900' : 'text-slate-600'}`}>
-                  {t('srs.enableTimer')}
+                  {t('srs.showTimer')}
                 </span>
                 {enableTimer && (
                   <span className="text-xs bg-white px-2 py-1 rounded font-bold text-blue-700">{t('common.on')}</span>
@@ -489,11 +614,10 @@ export default function SpacedRepetitionModal({
               </p>
             </div>
           </div>
-
           {/* Batch Review - Card Selection */}
-          {reviewMode === 'batch' && (
-            <div className="bg-slate-50 rounded-xl p-5 border-2 border-slate-200">
-              <div className="flex items-center gap-2 mb-4">
+          {reviewMode === 'batch' && !settingsOnly && (
+            <div className="bg-white rounded-xl p-6 border-2 border-slate-200">
+              <div className="flex items-center gap-3 mb-4">
                 <Filter size={18} className="text-slate-600" />
                 <h3 className="font-black text-slate-800">{t('srs.selectCardsToReview')}</h3>
                 <span className="ml-auto text-xs bg-white px-3 py-1 rounded-full font-bold text-slate-600 border border-slate-200">
@@ -512,32 +636,127 @@ export default function SpacedRepetitionModal({
                 </button>
                 
                 {/* Topic/Subtopic Filters */}
-                <div className="flex gap-2">
-                  <select
-                    value={selectedTopicFilters}
-                    onChange={(e) => setSelectedTopicFilters(
-                      Array.from(e.target.selectedOptions, option => option.value)
-                    )}
-                    className="px-3 py-2 border-2 border-slate-300 rounded-lg text-sm"
-                    multiple
-                  >
-                    {availableTopics.map(topic => (
-                      <option key={topic} value={topic}>{topic}</option>
-                    ))}
-                  </select>
-                  
-                  <select
-                    value={selectedSubtopicFilters}
-                    onChange={(e) => setSelectedSubtopicFilters(
-                      Array.from(e.target.selectedOptions, option => option.value)
-                    )}
-                    className="px-3 py-2 border-2 border-slate-300 rounded-lg text-sm"
-                    multiple
-                  >
-                    {availableSubtopics.map(subtopic => (
-                      <option key={subtopic} value={subtopic}>{subtopic}</option>
-                    ))}
-                  </select>
+                <div className="flex gap-3 items-start">
+                  <div className="w-[360px] h-[190px] flex flex-col">
+                    <div className="flex items-center justify-between mb-1">
+                      <div className="flex items-center gap-2 text-xs font-black text-slate-700 uppercase tracking-wider">
+                        <Tag size={14} className="text-slate-500" />
+                        {tf('calendar.topicsCount', { selected: shouldVisuallyClearBatchFilters ? 0 : (allTopicsSelected ? availableTopics.length : selectedTopicFilters.length), total: availableTopics.length })}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setAllTopicsSelected(true);
+                            setSelectedTopicFilters([]);
+                            setBatchFiltersVisuallyCleared(false);
+                          }}
+                          disabled={availableTopics.length === 0}
+                          className={`text-[11px] font-black ${availableTopics.length === 0 ? 'text-slate-300 cursor-not-allowed' : 'text-indigo-700 hover:text-indigo-900'}`}
+                        >
+                          {t('common.selectAll')}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setAllTopicsSelected(false);
+                            setSelectedTopicFilters([]);
+                            setBatchFiltersVisuallyCleared(false);
+                          }}
+                          disabled={!allTopicsSelected && selectedTopicFilters.length === 0}
+                          className={`text-[11px] font-black ${(!allTopicsSelected && selectedTopicFilters.length === 0) ? 'text-slate-300 cursor-not-allowed' : 'text-slate-500 hover:text-slate-700'}`}
+                        >
+                          {t('common.clear')}
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap gap-2 flex-1 min-h-0 overflow-auto pr-1">
+                      {availableTopics.map(topic => (
+                        <button
+                          key={topic}
+                          onClick={() => toggleTopicFilter(topic)}
+                          className={`px-3 py-2 rounded-lg text-sm font-bold transition-all whitespace-nowrap flex items-center gap-2 ${
+                            allTopicsSelected
+                              ? 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
+                              : selectedTopicFilters.includes(topic)
+                                ? 'bg-indigo-600 text-white shadow-md'
+                                : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
+                          }`}
+                        >
+                          {topic}
+                          <span className={`text-xs px-2 py-0.5 rounded-full font-black ${
+                            (!allTopicsSelected && selectedTopicFilters.includes(topic)) ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-700'
+                          }`}
+                          >
+                            {topicCounts[topic] || 0}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="w-[360px] h-[190px] flex flex-col">
+                    <div className="flex items-center justify-between mb-1">
+                      <div className="flex items-center gap-2 text-xs font-black text-slate-700 uppercase tracking-wider">
+                        <Layers size={14} className="text-slate-500" />
+                        {tf('calendar.subtopicsCount', { selected: shouldVisuallyClearBatchFilters ? 0 : (allSubtopicsSelected ? availableSubtopics.length : selectedSubtopicFilters.length), total: availableSubtopics.length })}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setAllSubtopicsSelected(true);
+                            setSelectedSubtopicFilters([]);
+                            setBatchFiltersVisuallyCleared(false);
+                          }}
+                          disabled={availableSubtopics.length === 0}
+                          className={`text-[11px] font-black ${availableSubtopics.length === 0 ? 'text-slate-300 cursor-not-allowed' : 'text-purple-700 hover:text-purple-900'}`}
+                        >
+                          {t('common.selectAll')}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setAllSubtopicsSelected(false);
+                            setSelectedSubtopicFilters([]);
+                            setBatchFiltersVisuallyCleared(false);
+                          }}
+                          disabled={!allSubtopicsSelected && selectedSubtopicFilters.length === 0}
+                          className={`text-[11px] font-black ${(!allSubtopicsSelected && selectedSubtopicFilters.length === 0) ? 'text-slate-300 cursor-not-allowed' : 'text-slate-500 hover:text-slate-700'}`}
+                        >
+                          {t('common.clear')}
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap gap-2 flex-1 min-h-0 overflow-auto pr-1">
+                      {availableSubtopics.map(subtopic => (
+                        <button
+                          key={subtopic}
+                          onClick={() => toggleSubtopicFilter(subtopic)}
+                          className={`px-3 py-2 rounded-lg text-sm font-bold transition-all whitespace-nowrap flex items-center gap-2 ${
+                            allSubtopicsSelected
+                              ? 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
+                              : selectedSubtopicFilters.includes(subtopic)
+                                ? 'bg-purple-600 text-white shadow-md'
+                                : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
+                          }`}
+                        >
+                          {subtopic}
+                          <span className={`text-xs px-2 py-0.5 rounded-full font-black ${
+                            (!allSubtopicsSelected && selectedSubtopicFilters.includes(subtopic)) ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-700'
+                          }`}
+                          >
+                            {subtopicCounts[subtopic] || 0}
+                          </span>
+                        </button>
+                      ))}
+                      {availableSubtopics.length === 0 && (
+                        <div className="text-xs text-slate-500">{t('calendar.noSubtopicsAvailable')}</div>
+                      )}
+                    </div>
+                  </div>
                 </div>
               </div>
 
@@ -587,7 +806,7 @@ export default function SpacedRepetitionModal({
                             <div 
                               className="text-sm text-slate-600 line-clamp-2"
                               dangerouslySetInnerHTML={{ 
-                                __html: `${t('srs.questionIdLabel')}: ${card.questionId}` 
+                                __html: `${t('srs.questionIdLabel')}: ${card.questionId}<span class=\"text-slate-400\"> (${t('srs.questionIdHelp')})</span>` 
                               }}
                             />
                             
@@ -642,4 +861,7 @@ export default function SpacedRepetitionModal({
       </motion.div>
     </div>
   );
+
+  if (embedded) return modalContent;
+  return createPortal(modalContent, document.body);
 }

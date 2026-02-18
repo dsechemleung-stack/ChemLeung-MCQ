@@ -368,6 +368,12 @@ export default function MillionaireQuiz({ questions: allQuestions = [] }) {
     };
   }, [currentQuestion]);
 
+  const isRichHtml = (val) => {
+    const s = String(val || '');
+    if (!s) return false;
+    return /<\s*img\b|<\s*span\b|<\s*br\b|<\s*div\b|<\s*p\b|<\s*svg\b/i.test(s);
+  };
+
   const isWide = useMediaQuery('(min-width: 768px)');
 
   const fullQuestionSetText = useMemo(() => {
@@ -379,6 +385,38 @@ export default function MillionaireQuiz({ questions: allQuestions = [] }) {
     const d = normalizeQuestionText(currentQuestion.OptionD, isWide);
     return `${q}\n\nA. ${a}\nB. ${b}\nC. ${c}\nD. ${d}`;
   }, [currentQuestion, isWide]);
+
+  const fullQuestionSetHtml = useMemo(() => {
+    if (!currentQuestion) return null;
+    const q = String(currentQuestion.Question || '');
+    const a = String(currentQuestion.OptionA || '');
+    const b = String(currentQuestion.OptionB || '');
+    const c = String(currentQuestion.OptionC || '');
+    const d = String(currentQuestion.OptionD || '');
+    return `
+      <div class="space-y-5">
+        <div class="prose prose-slate max-w-none text-white/90 prose-invert" data-m-rich="true">${q}</div>
+        <div class="grid grid-cols-1 gap-2">
+          <div class="flex items-start gap-3 p-3 rounded-xl border border-white/10 bg-white/5">
+            <div class="w-8 h-8 flex-shrink-0 flex items-center justify-center rounded-md font-black bg-white/10 text-white">A</div>
+            <div class="flex-1 prose prose-slate max-w-none text-white/90 prose-invert" data-m-rich="true">${a}</div>
+          </div>
+          <div class="flex items-start gap-3 p-3 rounded-xl border border-white/10 bg-white/5">
+            <div class="w-8 h-8 flex-shrink-0 flex items-center justify-center rounded-md font-black bg-white/10 text-white">B</div>
+            <div class="flex-1 prose prose-slate max-w-none text-white/90 prose-invert" data-m-rich="true">${b}</div>
+          </div>
+          <div class="flex items-start gap-3 p-3 rounded-xl border border-white/10 bg-white/5">
+            <div class="w-8 h-8 flex-shrink-0 flex items-center justify-center rounded-md font-black bg-white/10 text-white">C</div>
+            <div class="flex-1 prose prose-slate max-w-none text-white/90 prose-invert" data-m-rich="true">${c}</div>
+          </div>
+          <div class="flex items-start gap-3 p-3 rounded-xl border border-white/10 bg-white/5">
+            <div class="w-8 h-8 flex-shrink-0 flex items-center justify-center rounded-md font-black bg-white/10 text-white">D</div>
+            <div class="flex-1 prose prose-slate max-w-none text-white/90 prose-invert" data-m-rich="true">${d}</div>
+          </div>
+        </div>
+      </div>
+    `;
+  }, [currentQuestion]);
 
   const getFittedText = (raw, isQuestion = false) => {
     const s = normalizeQuestionText(raw, isWide);
@@ -693,36 +731,35 @@ export default function MillionaireQuiz({ questions: allQuestions = [] }) {
               >
                 <HexNeonOutline isTimedQuestion={isTimedQuestion} />
                 {(() => {
-                  const q = getFittedText(currentQuestion.Question, true);
+                  const isRich = isRichHtml(currentQuestion.Question);
+                  const q = isRich ? null : getFittedText(currentQuestion.Question, true);
                   return (
                     <div
                       ref={questionTextRef}
-                      className="m-hex-content text-center font-black leading-relaxed flex items-center justify-center"
+                      className="m-hex-content text-center font-black leading-relaxed flex items-center justify-center min-w-0 overflow-hidden"
                       style={{
-                        fontSize: questionFitFont ?? q.fontSize,
-                        lineHeight: questionFitLineHeight ?? q.lineHeight,
-                        letterSpacing: q.letterSpacing,
+                        fontSize: isRich ? undefined : (questionFitFont ?? q.fontSize),
+                        lineHeight: isRich ? undefined : (questionFitLineHeight ?? q.lineHeight),
+                        letterSpacing: isRich ? undefined : q.letterSpacing,
                         height: '100%',
-                        ['--m-safe-pad']: '8%'
+                        ['--m-safe-pad']: '12%'
                       }}
                     >
-                      <span
-                        ref={questionTextInnerRef}
-                        className="block overflow-hidden"
-                        style={{ maxHeight: `${QUESTION_HEIGHT - 14}px` }}
-                      >
-                        {q.displayText}
-                      </span>
-                      {(questionOverflowing || q.truncated) && (
-                        <button
-                          type="button"
-                          className="m-ellipsis-btn"
-                          onClick={() => setExpandModal({ title: `Question Set (Q${level})`, text: fullQuestionSetText })}
-                          title="View full question set"
-                          aria-label="View full question set"
+                      {isRich ? (
+                        <div
+                          ref={questionTextInnerRef}
+                          className="block overflow-hidden text-left w-full max-w-full min-w-0 break-words whitespace-normal px-6 sm:px-10 [&_*]:max-w-full [&_img]:max-h-[180px] [&_img]:max-w-full [&_img]:h-auto [&_img]:w-auto [&_img]:object-contain [&_img]:my-2"
+                          style={{ maxHeight: `${QUESTION_HEIGHT - 14}px` }}
+                          dangerouslySetInnerHTML={{ __html: String(currentQuestion.Question || '') }}
+                        />
+                      ) : (
+                        <span
+                          ref={questionTextInnerRef}
+                          className="block overflow-hidden whitespace-pre-wrap break-words px-6 sm:px-10"
+                          style={{ maxHeight: `${QUESTION_HEIGHT - 14}px` }}
                         >
-                          <MoreHorizontal size={18} />
-                        </button>
+                          {q.displayText}
+                        </span>
                       )}
                     </div>
                   );
@@ -733,74 +770,90 @@ export default function MillionaireQuiz({ questions: allQuestions = [] }) {
             {/* Middle Expand Area: Answers OR Decision Card */}
             <div className="flex-1 min-h-0 flex flex-col justify-center">
               {!victoryOverlay ? (
-                <div
-                  className="grid grid-cols-1 md:grid-cols-2 gap-x-10 gap-y-[10px] flex-1 min-h-0 lg:content-center"
-                  style={{
-                    width: '92%',
-                    marginLeft: 'auto',
-                    marginRight: 'auto',
-                    gridTemplateRows: `${ANSWER_HEIGHT}px ${ANSWER_HEIGHT}px`,
-                    gridAutoRows: `${ANSWER_HEIGHT}px`,
-                    maxHeight: `${(ANSWER_HEIGHT * 2) + ANSWER_GAP_Y}px`
-                  }}
-                >
-                  {(['A', 'B', 'C', 'D']).map((opt) => (
-                    <div key={opt} className="m-hex-wrap" style={{ ['--m-hex-span']: '100%' }}>
-                      <div className="m-hex-extend" />
-                      <MagneticMotionButton
-                        onClick={() => handleSelect(opt)}
-                        disabled={savingReward || gameOver || hiddenOptions.has(opt)}
-                        className={`px-0 text-left shadow-xl ${getOptionClass(opt)} hover:scale-[1.02] w-full flex items-center transition-all duration-500`}
-                        style={{
-                          height: `${ANSWER_HEIGHT}px`,
-                          minHeight: `${ANSWER_HEIGHT}px`,
-                          maxHeight: `${ANSWER_HEIGHT}px`
-                        }}
-                      >
-                        {shimmerOption === opt && <span className="m-shimmer" />}
-                        <HexNeonOutline isTimedQuestion={isTimedQuestion} />
-                        <span className="m-answer-connectors" />
-                        {(() => {
-                          const a = getFittedText(optionText[opt] || '', false);
-                          return (
-                            <div className="m-hex-content flex items-center gap-3 w-full">
-                              <div className="font-black text-base sm:text-lg">
-                                <span className="m-opt-label">{opt}:</span>
-                              </div>
-                              <div
-                                className="font-bold leading-relaxed text-white"
-                                style={{ fontSize: a.fontSize, lineHeight: a.lineHeight, letterSpacing: a.letterSpacing }}
-                              >
-                                <span
-                                  ref={(node) => {
-                                    if (node) answerTextRefs.current[opt] = node;
-                                  }}
-                                  className="block overflow-hidden"
-                                  style={{ maxHeight: `${ANSWER_HEIGHT - 10}px` }}
+                <div className="flex-1 min-h-0">
+                  <div
+                    className="w-[92%] mx-auto flex justify-end mb-2"
+                    style={{ marginRight: 'auto', marginLeft: 'auto' }}
+                  >
+                    <button
+                      type="button"
+                      className="m-ellipsis-btn"
+                      onClick={() => setExpandModal({ title: `Question Set (Q${level})`, text: fullQuestionSetText, html: fullQuestionSetHtml })}
+                      title="View full question and options"
+                      aria-label="View full question and options"
+                    >
+                      <MoreHorizontal size={18} />
+                    </button>
+                  </div>
+
+                  <div
+                    className="grid grid-cols-1 md:grid-cols-2 gap-x-10 gap-y-[10px] min-h-0 lg:content-center"
+                    style={{
+                      width: '92%',
+                      marginLeft: 'auto',
+                      marginRight: 'auto',
+                      gridTemplateRows: `${ANSWER_HEIGHT}px ${ANSWER_HEIGHT}px`,
+                      gridAutoRows: `${ANSWER_HEIGHT}px`,
+                      maxHeight: `${(ANSWER_HEIGHT * 2) + ANSWER_GAP_Y}px`
+                    }}
+                  >
+                    {(['A', 'B', 'C', 'D']).map((opt) => (
+                      <div key={opt} className="m-hex-wrap" style={{ ['--m-hex-span']: '100%' }}>
+                        <div className="m-hex-extend" />
+                        <MagneticMotionButton
+                          onClick={() => handleSelect(opt)}
+                          disabled={savingReward || gameOver || hiddenOptions.has(opt)}
+                          className={`px-0 text-left shadow-xl ${getOptionClass(opt)} hover:scale-[1.02] w-full flex items-center transition-all duration-500`}
+                          style={{
+                            height: `${ANSWER_HEIGHT}px`,
+                            minHeight: `${ANSWER_HEIGHT}px`,
+                            maxHeight: `${ANSWER_HEIGHT}px`
+                          }}
+                        >
+                          {shimmerOption === opt && <span className="m-shimmer" />}
+                          <HexNeonOutline isTimedQuestion={isTimedQuestion} />
+                          <span className="m-answer-connectors" />
+                          {(() => {
+                            const raw = optionText[opt] || '';
+                            const rich = isRichHtml(raw);
+                            const a = rich ? null : getFittedText(raw, false);
+                            return (
+                              <div className="m-hex-content flex items-center gap-3 w-full">
+                                <div className="font-black text-base sm:text-lg">
+                                  <span className="m-opt-label">{opt}:</span>
+                                </div>
+                                <div
+                                  className="font-bold leading-relaxed text-white flex-1 min-w-0"
+                                  style={rich ? undefined : { fontSize: a.fontSize, lineHeight: a.lineHeight, letterSpacing: a.letterSpacing }}
                                 >
-                                {a.displayText}
-                                </span>
-                                {(answerOverflowing?.[opt] || a.truncated) && (
-                                  <button
-                                    type="button"
-                                    className="m-ellipsis-btn"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      setExpandModal({ title: `Question Set (Q${level})`, text: fullQuestionSetText });
-                                    }}
-                                    title="View full question set"
-                                    aria-label="View full question set"
-                                  >
-                                    <MoreHorizontal size={18} />
-                                  </button>
-                                )}
+                                  {rich ? (
+                                    <div
+                                      ref={(node) => {
+                                        if (node) answerTextRefs.current[opt] = node;
+                                      }}
+                                      className="block overflow-hidden text-left max-w-full min-w-0 break-words whitespace-normal [&_*]:max-w-full [&_img]:max-h-[120px] [&_img]:max-w-[calc(100%-3rem)] [&_img]:h-auto [&_img]:w-auto [&_img]:object-contain [&_img]:my-2"
+                                      style={{ maxHeight: `${ANSWER_HEIGHT - 10}px` }}
+                                      dangerouslySetInnerHTML={{ __html: String(raw) }}
+                                    />
+                                  ) : (
+                                    <span
+                                      ref={(node) => {
+                                        if (node) answerTextRefs.current[opt] = node;
+                                      }}
+                                      className="block overflow-hidden whitespace-pre-wrap break-words"
+                                      style={{ maxHeight: `${ANSWER_HEIGHT - 10}px` }}
+                                    >
+                                      {a.displayText}
+                                    </span>
+                                  )}
+                                </div>
                               </div>
-                            </div>
-                          );
-                        })()}
-                      </MagneticMotionButton>
-                    </div>
-                  ))}
+                            );
+                          })()}
+                        </MagneticMotionButton>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               ) : (
                 <div className="flex-1 min-h-0" />
@@ -1064,9 +1117,16 @@ export default function MillionaireQuiz({ questions: allQuestions = [] }) {
           <div className="relative w-full h-full sm:h-auto sm:max-h-[85vh] sm:max-w-3xl m-glass sm:rounded-3xl p-6 sm:p-8 shadow-2xl overflow-y-auto">
             <div className="text-xs uppercase tracking-widest text-white/60">{t('millionaire.details')}</div>
             <div className="text-2xl font-black mt-2">{expandModal.title}</div>
-            <div className="text-white/85 mt-4 leading-relaxed whitespace-pre-line">
-              {expandModal.text}
-            </div>
+            {expandModal.html ? (
+              <div
+                className="mt-4"
+                dangerouslySetInnerHTML={{ __html: String(expandModal.html) }}
+              />
+            ) : (
+              <div className="text-white/85 mt-4 leading-relaxed whitespace-pre-line">
+                {expandModal.text}
+              </div>
+            )}
             <div className="mt-6">
               <button
                 onClick={() => setExpandModal(null)}

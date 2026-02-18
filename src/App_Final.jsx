@@ -19,6 +19,7 @@ import HistoryPage from './pages/HistoryPage_Fixed';
 import MistakeNotebookPage from './pages/MistakeNotebookPage';
 import FirebaseTestPage from './pages/FirebaseTestPage';
 import DebugDashboard from './pages/DebugDashboard';
+import SRSReviewPage from './pages/SRSReviewPage';
 import { useQuizData } from './hooks/useQuizData';
 import ChemistryLoading from './components/ChemistryLoading';
 import ChemStore from './components/ChemStore';
@@ -89,6 +90,15 @@ function AppContent() {
             element={
               <PrivateRoute>
                 <PracticeModeSelection questions={questions} />
+              </PrivateRoute>
+            }
+          />
+
+          <Route
+            path="/srs-review"
+            element={
+              <PrivateRoute>
+                <SRSReviewPage questions={questions} />
               </PrivateRoute>
             }
           />

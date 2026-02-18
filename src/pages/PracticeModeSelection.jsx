@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { Clock, Settings, Play, Zap, BookOpen, Lock, Check, AlertCircle } from 'lucide-react';
@@ -8,6 +8,7 @@ import { useLanguage } from '../contexts/LanguageContext';
 import { doc, updateDoc } from 'firebase/firestore';
 import { db } from '../firebase/config';
 import { quizService } from '../services/quizService';
+import * as srsService from '../services/srsService';
 
 // Helper function for AI Daily Mission selection
 function calculateMasteryPriority(mistake, recentTopics = []) {
@@ -62,19 +63,60 @@ export default function PracticeModeSelection({ questions }) {
   const [showCustom, setShowCustom] = useState(false);
   const [showUpdateTopics, setShowUpdateTopics] = useState(false);
   const [loadingMistakes, setLoadingMistakes] = useState(false);
+  const [activeCarouselModeId, setActiveCarouselModeId] = useState('timed');
+
+  const [showTopic, setShowTopic] = useState(() => {
+    const saved = localStorage.getItem('practice_show_topic');
+    return saved === null ? true : saved === 'true';
+  });
+  const [showSubtopic, setShowSubtopic] = useState(() => {
+    const saved = localStorage.getItem('practice_show_subtopic');
+    return saved === null ? true : saved === 'true';
+  });
+  const [showDseCode, setShowDseCode] = useState(() => {
+    const saved = localStorage.getItem('practice_show_dsecode');
+    return saved === null ? true : saved === 'true';
+  });
+
+  const [showTimer, setShowTimer] = useState(() => {
+    const saved = localStorage.getItem('practice_show_timer');
+    return saved === null ? true : saved === 'true';
+  });
+
+  useEffect(() => {
+    localStorage.setItem('practice_show_topic', String(showTopic));
+  }, [showTopic]);
+
+  useEffect(() => {
+    localStorage.setItem('practice_show_subtopic', String(showSubtopic));
+  }, [showSubtopic]);
+
+  useEffect(() => {
+    localStorage.setItem('practice_show_dsecode', String(showDseCode));
+  }, [showDseCode]);
+
+  useEffect(() => {
+    localStorage.setItem('practice_show_timer', String(showTimer));
+  }, [showTimer]);
 
   // Timer settings for each mode
-  const [timedModeTimer, setTimedModeTimer] = useState(true);
+  const [timedModeTimer, setTimedModeTimer] = useState(() => showTimer);
   const [timedModeIsTimed, setTimedModeIsTimed] = useState(true);
-  const [marathonModeTimer, setMarathonModeTimer] = useState(true);
+  const [marathonModeTimer, setMarathonModeTimer] = useState(() => showTimer);
   const [marathonModeIsTimed, setMarathonModeIsTimed] = useState(false);
 
   // Custom mode state
   const [selectedTopics, setSelectedTopics] = useState([]);
   const [selectedSubtopics, setSelectedSubtopics] = useState([]);
   const [customCount, setCustomCount] = useState(10);
-  const [customTimerEnabled, setCustomTimerEnabled] = useState(false);
+  const [customTimerEnabled, setCustomTimerEnabled] = useState(() => showTimer);
   const [customIsTimed, setCustomIsTimed] = useState(false);
+
+  useEffect(() => {
+    setTimedModeTimer(showTimer);
+    setMarathonModeTimer(showTimer);
+    setCustomTimerEnabled(showTimer);
+  }, [showTimer]);
 
   // Quick update topics state
   const [tempLearnedUpTo, setTempLearnedUpTo] = useState(userProfile?.learnedUpTo || '');
@@ -114,6 +156,13 @@ export default function PracticeModeSelection({ questions }) {
     });
   }, [allTopics, availableTopics]);
 
+  useEffect(() => {
+    if (!showCustom) return;
+    const selectable = customTopics.filter(t => t.available).map(t => t.name);
+    if (selectable.length === 0) return;
+    setSelectedTopics((prev) => (prev.length === 0 ? selectable : prev));
+  }, [showCustom, customTopics]);
+
   const availableSubtopics = useMemo(() => {
     if (selectedTopics.length === 0) return [];
     return [...new Set(questions
@@ -127,6 +176,13 @@ export default function PracticeModeSelection({ questions }) {
     setSelectedTopics(prev => 
       prev.includes(topic) ? prev.filter(t => t !== topic) : [...prev, topic]
     );
+    setSelectedSubtopics([]);
+  };
+
+  const toggleAllCustomTopics = () => {
+    const selectable = customTopics.filter(t => t.available).map(t => t.name);
+    if (selectable.length === 0) return;
+    setSelectedTopics((prev) => (prev.length === selectable.length ? [] : selectable));
     setSelectedSubtopics([]);
   };
 
@@ -199,6 +255,25 @@ export default function PracticeModeSelection({ questions }) {
         break;
       case 'mistake-review':
         navigate('/notebook');
+        break;
+      case 'srs-review':
+        (async () => {
+          try {
+            const uid = currentUser?.uid;
+            if (!uid) return;
+
+            const due = await srsService.getDueCards(uid, undefined, { limit: 1 });
+            if (!Array.isArray(due) || due.length === 0) {
+              alert(t('calendar.noReviewSessionsFoundForDay'));
+              return;
+            }
+
+            navigate('/srs-review');
+          } catch (e) {
+            console.error('Failed to check SRS due cards:', e);
+            alert(t('srs.failedLoadDueCardsTryAgain'));
+          }
+        })();
         break;
       case 'custom':
         handleModeSelect('custom', 10);
@@ -309,6 +384,7 @@ export default function PracticeModeSelection({ questions }) {
     localStorage.setItem('quiz_mode', mode);
     localStorage.setItem('quiz_timer_enabled', timerEnabled.toString());
     localStorage.setItem('quiz_is_timed_mode', isTimed.toString());
+    localStorage.setItem('quiz_hide_timer_ui', (!showTimer).toString());
     
     navigate('/quiz');
   };
@@ -433,6 +509,15 @@ export default function PracticeModeSelection({ questions }) {
               <label className="block text-sm font-black text-slate-500 uppercase tracking-widest mb-4">
                 {t('practiceMode.selectTopics')}
               </label>
+              <div className="flex flex-wrap gap-2 mb-3">
+                <button
+                  type="button"
+                  onClick={toggleAllCustomTopics}
+                  className="px-4 py-2 rounded-full text-xs font-black border-2 transition-all bg-white border-slate-200 text-slate-700 hover:border-slate-300"
+                >
+                  All
+                </button>
+              </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                 {customTopics.map(({ name, available }) => (
                   <button
@@ -582,16 +667,11 @@ export default function PracticeModeSelection({ questions }) {
                 {t('practice.yourAvailableTopics')} ({availableTopics.length})
               </h3>
               <div className="flex flex-wrap gap-2 mt-2">
-                {availableTopics.slice(0, 8).map((topic) => (
+                {availableTopics.map((topic) => (
                   <span key={topic} className="px-2 py-1 bg-white/70 border border-white/50 text-slate-800 rounded-lg text-xs font-bold shadow-sm">
                     {topic}
                   </span>
                 ))}
-                {availableTopics.length > 8 && (
-                  <span className="px-2 py-1 text-slate-700 text-xs font-bold">
-                    +{availableTopics.length - 8} {t('practice.more')}
-                  </span>
-                )}
               </div>
             </div>
             <button
@@ -600,6 +680,44 @@ export default function PracticeModeSelection({ questions }) {
             >
               {t('practice.updateTopics')}
             </button>
+          </div>
+
+          <div className="relative mt-3 rounded-2xl border border-white/40 bg-white/30 backdrop-blur px-4 py-3 shadow-sm">
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="text-xs font-black uppercase tracking-wider text-slate-900/80">
+                Hide in quiz
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowTopic(v => !v)}
+                  className={`px-3 py-1.5 rounded-full text-xs font-black border transition-all ${!showTopic ? 'bg-white text-slate-900 border-white shadow-[0_0_0_2px_rgba(255,255,255,0.9),0_0_18px_rgba(34,211,238,0.55)]' : 'bg-transparent text-slate-400 border-white/30 hover:border-white/60 hover:text-slate-600'}`}
+                >
+                  Topic
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowSubtopic(v => !v)}
+                  className={`px-3 py-1.5 rounded-full text-xs font-black border transition-all ${!showSubtopic ? 'bg-white text-slate-900 border-white shadow-[0_0_0_2px_rgba(255,255,255,0.9),0_0_18px_rgba(236,72,153,0.45)]' : 'bg-transparent text-slate-400 border-white/30 hover:border-white/60 hover:text-slate-600'}`}
+                >
+                  Subtopic
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowDseCode(v => !v)}
+                  className={`px-3 py-1.5 rounded-full text-xs font-black border transition-all ${!showDseCode ? 'bg-white text-slate-900 border-white shadow-[0_0_0_2px_rgba(255,255,255,0.9),0_0_18px_rgba(99,102,241,0.5)]' : 'bg-transparent text-slate-400 border-white/30 hover:border-white/60 hover:text-slate-600'}`}
+                >
+                  Code
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowTimer(v => !v)}
+                  className={`px-3 py-1.5 rounded-full text-xs font-black border transition-all ${!showTimer ? 'bg-white text-slate-900 border-white shadow-[0_0_0_2px_rgba(255,255,255,0.9),0_0_18px_rgba(16,185,129,0.55)]' : 'bg-transparent text-slate-400 border-white/30 hover:border-white/60 hover:text-slate-600'}`}
+                >
+                  Timer
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       ) : (
@@ -624,7 +742,108 @@ export default function PracticeModeSelection({ questions }) {
         </div>
       )}
 
-      <FisheyeCarousel onModeSelect={handleCarouselModeSelect} showHeader={false} compact initialModeId="timed" />
+      <div className="rounded-2xl border border-white/40 bg-white/55 backdrop-blur-xl shadow-lg px-4 py-3">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          {(() => {
+            const modeTitleKey = {
+              timed: 'practiceModeCarousel.timedTitle',
+              marathon: 'practiceModeCarousel.marathonTitle',
+              custom: 'practiceModeCarousel.customTitle',
+              'ai-daily': 'practiceModeCarousel.aiDailyTitle',
+              'srs-review': 'practiceModeCarousel.srsReviewTitle',
+              'mistake-review': 'practiceModeCarousel.mistakeReviewTitle',
+              millionaire: 'practiceModeCarousel.millionaireTitle',
+            };
+
+            const groups = [
+              {
+                id: 'regular',
+                titleKey: 'practiceModeLegend.regular',
+                modeIds: ['timed', 'marathon', 'custom'],
+              },
+              {
+                id: 'mistake',
+                titleKey: 'practiceModeLegend.mistakeReview',
+                modeIds: ['ai-daily', 'srs-review', 'mistake-review'],
+              },
+              {
+                id: 'game',
+                titleKey: 'practiceModeLegend.gameMode',
+                modeIds: ['millionaire'],
+              },
+            ];
+
+            return groups.map((group) => {
+              const isGroupActive = group.modeIds.includes(activeCarouselModeId);
+
+              return (
+                <div key={group.id} className="rounded-xl border border-white/50 bg-white/40 p-2">
+                  <button
+                    type="button"
+                    onClick={() => setActiveCarouselModeId(group.modeIds[0])}
+                    className={`w-full rounded-xl px-3 py-2 border border-slate-200 transition-all font-black text-sm ${
+                      isGroupActive ? 'bg-slate-900 text-white border-slate-900' : 'bg-white/50 text-slate-800 hover:bg-white/70'
+                    }`}
+                  >
+                    {t(group.titleKey)}
+                  </button>
+
+                  <div className="mt-2 flex flex-nowrap gap-2 justify-center items-center overflow-visible py-1">
+                    {group.modeIds.map((modeId) => {
+                      const isModeActive = activeCarouselModeId === modeId;
+
+                      const shortLabelKey = {
+                        timed: 'practiceModeLegend.timedShort',
+                        marathon: 'practiceModeLegend.untimedShort',
+                        custom: 'practiceModeLegend.customShort',
+                        'ai-daily': 'practiceModeLegend.aiDailyShort',
+                        'srs-review': 'practiceModeLegend.srsShort',
+                        'mistake-review': 'practiceModeLegend.customShort',
+                        millionaire: 'practiceModeLegend.millionaireShort',
+                      }[modeId];
+                      const shortLabel = shortLabelKey ? t(shortLabelKey) : modeId;
+
+                      const modeActiveClass = {
+                        timed: 'bg-gradient-to-r from-red-500 to-orange-500 border-red-600 text-white shadow-sm',
+                        marathon: 'bg-gradient-to-r from-purple-600 to-indigo-600 border-indigo-700 text-white shadow-sm',
+                        custom: 'bg-gradient-to-r from-blue-600 to-cyan-600 border-blue-700 text-white shadow-sm',
+                        'ai-daily': 'bg-gradient-to-r from-cyan-600 via-sky-600 to-indigo-600 border-cyan-700 text-white shadow-sm',
+                        'srs-review': 'bg-gradient-to-r from-emerald-600 to-teal-600 border-emerald-700 text-white shadow-sm',
+                        'mistake-review': 'bg-gradient-to-r from-rose-500 to-pink-500 border-rose-600 text-white shadow-sm',
+                        millionaire: 'bg-gradient-to-r from-amber-500 via-orange-500 to-rose-500 border-amber-600 text-white shadow-sm',
+                      }[modeId] || 'bg-slate-900 border-slate-900 text-white shadow-sm';
+
+                      return (
+                        <button
+                          key={modeId}
+                          type="button"
+                          onClick={() => setActiveCarouselModeId(modeId)}
+                          className={`flex-none min-w-[4.5rem] px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs font-black transition-all whitespace-nowrap leading-none text-center ${
+                            isModeActive
+                              ? modeActiveClass
+                              : 'bg-white/60 text-slate-700 border-slate-200 hover:bg-white/80'
+                          }`}
+                        >
+                          {shortLabel}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            });
+          })()}
+        </div>
+      </div>
+
+      <FisheyeCarousel
+        onModeSelect={handleCarouselModeSelect}
+        showHeader={false}
+        compact
+        initialModeId="timed"
+        activeModeId={activeCarouselModeId}
+        onActiveModeChange={setActiveCarouselModeId}
+      />
     </div>
   );
 }

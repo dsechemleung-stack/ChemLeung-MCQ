@@ -25,6 +25,7 @@ import {
   writeBatch
 } from 'firebase/firestore';
 import { getNow } from '../utils/timeTravel';
+import { formatHKDateKey } from '../utils/hkTime';
 import {
   createNewCard,
   updateCardAfterReview,
@@ -100,7 +101,7 @@ export async function createCardsFromMistakes(userId, wrongQuestions, sessionId,
  * @returns {Promise<Array>} Due cards
  */
 export async function getDueCards(userId, asOf = getNow(), options = {}) {
-  const today = asOf.toISOString().split('T')[0];
+  const today = formatHKDateKey(asOf);
   const max = Number(options?.limit);
   
   console.log(`🔍 Fetching due cards for ${userId} as of ${today}`);
@@ -169,10 +170,10 @@ export async function getCardsDueOnDate(userId, dateStr, options = {}) {
 }
 
 export async function getOverdueCount(userId, asOf = getNow()) {
-  const todayStr = asOf.toISOString().split('T')[0];
+  const todayStr = formatHKDateKey(asOf);
   const fourteenDaysAgo = new Date(asOf);
   fourteenDaysAgo.setDate(fourteenDaysAgo.getDate() - 14);
-  const fourteenDaysAgoStr = fourteenDaysAgo.toISOString().split('T')[0];
+  const fourteenDaysAgoStr = formatHKDateKey(fourteenDaysAgo);
 
   const q = query(
     collection(db, COLLECTIONS.CARDS),
@@ -196,7 +197,7 @@ export async function archiveOverdueCards(userId) {
   const today = new Date();
   const fourteenDaysAgo = new Date(today);
   fourteenDaysAgo.setDate(fourteenDaysAgo.getDate() - 14);
-  const fourteenDaysAgoStr = fourteenDaysAgo.toISOString().split('T')[0];
+  const fourteenDaysAgoStr = formatHKDateKey(fourteenDaysAgo);
   
   console.log(`🗄️ Archiving overdue cards older than 14 days for user ${userId}`);
   

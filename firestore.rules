@@ -1,0 +1,328 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ============================================
+    // HELPER FUNCTIONS
+    // ============================================
+
+    function isOwner(userId) {
+      return request.auth != null && request.auth.uid == userId;
+    }
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isValidCalendarEvent() {
+      let data = request.resource.data;
+      let hasRequiredFields = data.keys().hasAll(['userId', 'type', 'date', 'createdAt'])
+        && data.userId is string
+        && data.type is string
+        && data.date is string;
+      let topicValid = !('topic' in data) || data.topic == null || data.topic is string;
+      let subtopicValid = !('subtopic' in data) || data.subtopic == null || data.subtopic is string;
+      return hasRequiredFields && topicValid && subtopicValid;
+    }
+
+    function isValidRecommendation() {
+      return request.resource.data.keys().hasAll(['topic', 'subtopic', 'priority', 'status'])
+        && request.resource.data.priority in ['HIGH', 'MEDIUM', 'LOW']
+        && request.resource.data.status in ['pending', 'accepted', 'dismissed'];
+    }
+
+    function isValidSRSCard() {
+      let data = request.resource.data;
+      return data.keys().hasAll([
+        'userId', 'questionId', 'interval', 'easeFactor',
+        'repetitionCount', 'nextReviewDate', 'status'
+      ])
+      && data.userId is string
+      && data.questionId is string
+      && data.interval is number
+      && data.easeFactor is number
+      && data.repetitionCount is number
+      && data.nextReviewDate is string
+      && data.status in ['new', 'learning', 'review', 'graduated'];
+    }
+
+    function isValidReviewAttempt() {
+      let data = request.resource.data;
+      return data.keys().hasAll([
+        'cardId', 'userId', 'questionId', 'attemptNumber',
+        'wasCorrect', 'attemptedAt'
+      ])
+      && data.userId is string
+      && data.cardId is string
+      && data.wasCorrect is bool;
+    }
+
+    function isValidReviewSession() {
+      let data = request.resource.data;
+      return data.keys().hasAll([
+        'userId', 'cardsReviewed', 'cardsCorrect', 'cardsFailed',
+        'sessionType', 'startedAt', 'completedAt'
+      ])
+      && data.userId is string
+      && data.cardsReviewed is number
+      && data.sessionType is string;
+    }
+
+    // ============================================
+    // USER PROFILE & ECONOMY
+    // ============================================
+
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      allow write: if isOwner(userId);
+
+      match /tokenHistory/{historyId} {
+        allow read, create: if isOwner(userId);
+      }
+
+      match /rewardCooldowns/{cooldownId} {
+        allow read, write: if isOwner(userId);
+      }
+
+      // ✅ ADDED: Mistake index for Mistake Notebook
+      match /mistakes/{mistakeId} {
+        allow read, write: if isOwner(userId);
+      }
+
+      // ✅ FIX B: USER CALENDAR SUBCOLLECTION (optimized calendar uses this)
+      match /calendar_events/{eventId} {
+        allow create: if isOwner(userId)
+                      && request.resource.data.userId == request.auth.uid
+                      && isValidCalendarEvent();
+
+        allow read: if isOwner(userId);
+
+        allow update: if isOwner(userId)
+                      && request.resource.data.userId == request.auth.uid;
+
+        allow delete: if isOwner(userId);
+      }
+
+      match /srs_daily_summaries/{dateId} {
+        allow read: if isOwner(userId);
+        allow write: if false;
+      }
+    }
+
+    // ============================================
+    // QUIZ DATA
+    // ============================================
+
+    match /attempts/{attemptId} {
+      allow read: if true;
+      allow create: if isAuthenticated()
+                    && request.resource.data.userId == request.auth.uid;
+      allow update, delete: if isAuthenticated()
+                            && resource.data.userId == request.auth.uid;
+    }
+
+    // ============================================
+    // WEEKLY LEADERBOARD (AGGREGATED) - READ ONLY FOR CLIENTS
+    // ============================================
+
+    match /weekly_leaderboards/{weekId} {
+      allow read: if isAuthenticated();
+
+      match /entries/{userId} {
+        allow read: if isAuthenticated();
+        allow create, update, delete: if false;
+      }
+
+      match /payouts/{userId} {
+        allow read, create, update, delete: if false;
+      }
+    }
+
+    // ============================================
+    // CALENDAR EVENTS (global collection - keep if you still use it anywhere)
+    // ============================================
+
+    match /calendar_events/{eventId} {
+      allow create: if isAuthenticated()
+                    && request.resource.data.userId == request.auth.uid
+                    && isValidCalendarEvent();
+
+      allow read: if isAuthenticated()
+                  && resource.data.userId == request.auth.uid;
+
+      allow update: if isAuthenticated()
+                    && resource.data.userId == request.auth.uid
+                    && (
+                      request.resource.data.userId == request.auth.uid
+                      || request.resource.data.diff(resource.data)
+                        .affectedKeys()
+                        .hasOnly(['completed', 'completedAt', 'completionData', 'updatedAt'])
+                    );
+
+      allow delete: if isAuthenticated()
+                    && resource.data.userId == request.auth.uid;
+    }
+
+    // ============================================
+    // USER PERFORMANCE TRACKING
+    // ============================================
+
+    match /user_performance/{userId} {
+      allow read, write: if isOwner(userId);
+
+      match /subtopics/{subtopicId} {
+        allow read: if isOwner(userId);
+        allow write: if isOwner(userId);
+      }
+    }
+
+    // ============================================
+    // AI RECOMMENDATIONS
+    // ============================================
+
+    match /ai_recommendations/{userId} {
+      allow read, write: if isOwner(userId);
+
+      match /suggestions/{suggestionId} {
+        allow read: if isOwner(userId);
+
+        allow create: if isOwner(userId)
+                      && isValidRecommendation();
+
+        allow update: if isOwner(userId)
+                      && request.resource.data.diff(resource.data)
+                        .affectedKeys()
+                        .hasOnly(['status', 'acceptedAt', 'dismissedAt', 'updatedAt']);
+
+        allow delete: if isOwner(userId);
+      }
+    }
+
+    // ============================================
+    // SPACED REPETITION SYSTEM (SRS)
+    // ============================================
+
+    match /spaced_repetition_cards/{cardId} {
+      allow create: if isAuthenticated()
+                    && request.resource.data.userId == request.auth.uid
+                    && isValidSRSCard();
+
+      // ✅ FIX A: allow reading non-existent doc so code can check "exists()"
+      allow read: if isAuthenticated()
+                  && (resource == null || resource.data.userId == request.auth.uid);
+
+      allow update: if isAuthenticated()
+                    && resource.data.userId == request.auth.uid
+                    && request.resource.data.userId == request.auth.uid;
+
+      allow delete: if isAuthenticated()
+                    && resource.data.userId == request.auth.uid;
+    }
+
+    match /review_attempts/{attemptId} {
+      allow create: if isAuthenticated()
+                    && request.resource.data.userId == request.auth.uid
+                    && isValidReviewAttempt();
+
+      allow read: if isAuthenticated()
+                  && resource.data.userId == request.auth.uid;
+
+      allow update, delete: if false;
+    }
+
+    match /review_sessions/{sessionId} {
+      allow create: if isAuthenticated()
+                    && request.resource.data.userId == request.auth.uid
+                    && isValidReviewSession();
+
+      allow read: if isAuthenticated()
+                  && resource.data.userId == request.auth.uid;
+
+      allow update: if isAuthenticated()
+                    && resource.data.userId == request.auth.uid
+                    && request.resource.data.diff(resource.data)
+                      .affectedKeys()
+                      .hasOnly(['completedAt', 'totalTimeSpent', 'updatedAt']);
+
+      allow delete: if isAuthenticated()
+                    && resource.data.userId == request.auth.uid;
+    }
+
+    // ============================================
+    // FORUM & SOCIAL
+    // ============================================
+
+    match /forum_posts/{postId} {
+      allow read: if true;
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated() && (
+        resource.data.userId == request.auth.uid ||
+        request.resource.data.diff(resource.data)
+          .affectedKeys()
+          .hasOnly(['likes', 'likedBy', 'replyCount'])
+      );
+      allow delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
+    }
+
+    match /forum_replies/{replyId} {
+      allow read: if true;
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated() && (
+        resource.data.userId == request.auth.uid ||
+        request.resource.data.diff(resource.data)
+          .affectedKeys()
+          .hasOnly(['likes', 'likedBy'])
+      );
+      allow delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
+    }
+
+    // ============================================
+    // GENERIC COMMENTS
+    // ============================================
+
+    match /comments/{commentId} {
+      allow read: if true;
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated() && (
+        resource.data.userId == request.auth.uid ||
+        request.resource.data.diff(resource.data)
+          .affectedKeys()
+          .hasOnly(['likes', 'likedBy'])
+      );
+      allow delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
+    }
+
+    match /comment_replies/{replyId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated() && (
+        resource.data.userId == request.auth.uid ||
+        request.resource.data.diff(resource.data)
+          .affectedKeys()
+          .hasOnly(['likes', 'likedBy'])
+      );
+      allow delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
+    }
+
+    // ============================================
+    // COMMENT QUESTION STATS (AGGREGATED)
+    // ============================================
+
+    match /comment_question_stats/{questionId} {
+      allow read: if true;
+      allow create, update, delete: if false;
+    }
+
+    // ============================================
+    // SYSTEM
+    // ============================================
+
+    match /notifications/{notifId} {
+      allow read, update, delete: if isAuthenticated() && (
+        resource.data.recipientId == request.auth.uid ||
+        resource.data.userId == request.auth.uid
+      );
+      allow create: if isAuthenticated();
+    }
+  }
+}

@@ -43,3 +43,5 @@ git fetch --tags
 git checkout backup-2026-02-16-v10
 # (optional) to continue working:
 git checkout -b restore-from-backup-v10 backup-2026-02-16-v10, added Q16-20 to Millionaire
+_______
+backup 11: Shrinking reads of Firestore, use Algorila for search in Forum

@@ -5,6 +5,7 @@ import { quizService } from '../services/quizService';
 import { collection, getDocs, query, where, orderBy, limit } from 'firebase/firestore';
 import { db } from '../firebase/config';
 import { CheckCircle, XCircle, AlertCircle, Database, RefreshCw } from 'lucide-react';
+import app from '../firebase/config';
 
 export default function DebugDashboard() {
   const { currentUser, userProfile } = useAuth();
@@ -16,6 +17,52 @@ export default function DebugDashboard() {
   const addLog = (type, message) => {
     setLogs(prev => [...prev, { type, message, timestamp: new Date().toLocaleTimeString() }]);
   };
+
+  async function rebuildSrsSummaries() {
+    if (!currentUser) {
+      addLog('error', '❌ Must be logged in');
+      return;
+    }
+
+    setTesting(true);
+    addLog('info', '🧠 Rebuilding SRS daily summaries (one-time backfill)...');
+
+    try {
+      const { getFunctions, httpsCallable } = await import('firebase/functions');
+      const functions = getFunctions(app, 'asia-east1');
+      const callable = httpsCallable(functions, 'rebuildSrsDailySummaries');
+      const res = await callable({});
+      addLog('success', `✅ Rebuild complete: ${JSON.stringify(res.data)}`);
+
+      try {
+        addLog('info', '📄 Fetching recent srs_daily_summaries docs...');
+        const { collection, getDocs, orderBy, query, limit } = await import('firebase/firestore');
+        const summariesRef = collection(db, 'users', currentUser.uid, 'srs_daily_summaries');
+        const snap = await getDocs(query(summariesRef, orderBy('date', 'desc'), limit(15)));
+        if (snap.empty) {
+          addLog('warning', '⚠️ No srs_daily_summaries found after rebuild');
+        } else {
+          snap.docs.forEach((d) => {
+            const data = d.data() || {};
+            addLog('info', `• ${data.date || d.id}: dueTotal=${data.dueTotal || 0}`);
+          });
+        }
+      } catch (e2) {
+        addLog('warning', `⚠️ Failed to read summaries: ${e2?.message || String(e2)}`);
+      }
+
+      try {
+        window.dispatchEvent(new CustomEvent('calendar:refresh'));
+      } catch {
+        // ignore
+      }
+    } catch (e) {
+      console.error('rebuildSrsDailySummaries failed:', e);
+      addLog('error', `❌ Rebuild failed: ${e?.message || String(e)}`);
+    } finally {
+      setTesting(false);
+    }
+  }
 
   async function testEverything() {
     setLogs([]);
@@ -223,6 +270,15 @@ export default function DebugDashboard() {
         >
           <Database size={20} />
           {t('Create Test Quiz Attempt')}
+        </button>
+
+        <button
+          onClick={rebuildSrsSummaries}
+          disabled={testing}
+          className="py-6 bg-purple-700 text-white rounded-xl font-bold text-lg shadow-lg hover:bg-purple-800 disabled:bg-slate-300 transition-all flex items-center justify-center gap-2"
+        >
+          <RefreshCw size={20} />
+          Rebuild SRS Summaries
         </button>
       </div>
 

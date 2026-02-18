@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Clock, Infinity, Sparkles, Heart, Settings, ChevronLeft, ChevronRight, Play, BarChart3, Percent, PhoneCall, Layers, Shield, Coins } from 'lucide-react';
 import { useLanguage } from '../contexts/LanguageContext';
@@ -29,6 +29,18 @@ const MODES = [
     iconColor: 'text-purple-600',
   },
   {
+    id: 'custom',
+    titleKey: 'practiceModeCarousel.customTitle',
+    subtitleKey: 'practiceModeCarousel.customSubtitle',
+    descriptionKey: 'practiceModeCarousel.customDesc',
+    icon: Settings,
+    gradient: 'from-blue-600 to-cyan-600',
+    bgColor: 'bg-blue-50',
+    borderColor: 'border-blue-200',
+    textColor: 'text-blue-700',
+    iconColor: 'text-blue-600',
+  },
+  {
     id: 'ai-daily',
     titleKey: 'practiceModeCarousel.aiDailyTitle',
     subtitleKey: 'practiceModeCarousel.aiDailySubtitle',
@@ -41,6 +53,18 @@ const MODES = [
     iconColor: 'text-cyan-700',
   },
   {
+    id: 'srs-review',
+    titleKey: 'practiceModeCarousel.srsReviewTitle',
+    subtitleKey: 'practiceModeCarousel.srsReviewSubtitle',
+    descriptionKey: 'practiceModeCarousel.srsReviewDesc',
+    icon: Layers,
+    gradient: 'from-emerald-600 to-teal-600',
+    bgColor: 'bg-emerald-50',
+    borderColor: 'border-emerald-200',
+    textColor: 'text-emerald-800',
+    iconColor: 'text-emerald-700',
+  },
+  {
     id: 'mistake-review',
     titleKey: 'practiceModeCarousel.mistakeReviewTitle',
     subtitleKey: 'practiceModeCarousel.mistakeReviewSubtitle',
@@ -51,18 +75,6 @@ const MODES = [
     borderColor: 'border-rose-200',
     textColor: 'text-rose-700',
     iconColor: 'text-rose-500',
-  },
-  {
-    id: 'custom',
-    titleKey: 'practiceModeCarousel.customTitle',
-    subtitleKey: 'practiceModeCarousel.customSubtitle',
-    descriptionKey: 'practiceModeCarousel.customDesc',
-    icon: Settings,
-    gradient: 'from-blue-600 to-cyan-600',
-    bgColor: 'bg-blue-50',
-    borderColor: 'border-blue-200',
-    textColor: 'text-blue-700',
-    iconColor: 'text-blue-600',
   },
   {
     id: 'millionaire',
@@ -85,8 +97,10 @@ const getItemStyle = (position) => {
     2: { scale: 1.2, opacity: 1, zIndex: 10 },
     3: { scale: 0.9, opacity: 0.85, zIndex: 2 },
     4: { scale: 0.7, opacity: 0.6, zIndex: 1 },
+    5: { scale: 0.5, opacity: 0.3, zIndex: 0 },
+    6: { scale: 0.5, opacity: 0.3, zIndex: 0 },
   };
-  return styles[position] || { scale: 0.7, opacity: 0.6, zIndex: 0 };
+  return styles[position] || { scale: 0.5, opacity: 0.3, zIndex: 0 };
 };
 
 export default function FisheyeCarousel({
@@ -94,14 +108,32 @@ export default function FisheyeCarousel({
   showHeader = true,
   compact = false,
   initialModeId,
+  activeModeId,
+  onActiveModeChange,
 }) {
   const [activeIndex, setActiveIndex] = useState(() => {
-    if (!initialModeId) return 2;
-    const idx = MODES.findIndex((m) => m.id === initialModeId);
+    const seed = activeModeId || initialModeId;
+    if (!seed) return 2;
+    const idx = MODES.findIndex((m) => m.id === seed);
     return idx >= 0 ? idx : 2;
   });
+  const [showAiDailyInfo, setShowAiDailyInfo] = useState(false);
   const [isSmallScreen, setIsSmallScreen] = useState(false);
   const { t, tf, isEnglish } = useLanguage();
+
+  useEffect(() => {
+    if (!activeModeId) return;
+    const idx = MODES.findIndex((m) => m.id === activeModeId);
+    if (idx >= 0 && idx !== activeIndex) setActiveIndex(idx);
+  }, [activeModeId, activeIndex]);
+
+  const setActiveIndexAndNotify = (nextIndex) => {
+    const next = MODES[nextIndex];
+    if (next?.id && onActiveModeChange && (!activeModeId || next.id !== activeModeId)) {
+      onActiveModeChange(next.id);
+    }
+    setActiveIndex(nextIndex);
+  };
 
   useEffect(() => {
     const mq = window.matchMedia('(max-width: 639px)');
@@ -127,12 +159,30 @@ export default function FisheyeCarousel({
     return (diff + 2 + MODES.length) % MODES.length;
   };
 
-  const navigateLeft = () => setActiveIndex((prev) => getCircularIndex(prev - 1));
-  const navigateRight = () => setActiveIndex((prev) => getCircularIndex(prev + 1));
+  const navigateLeft = () => {
+    setActiveIndex((prev) => {
+      const next = getCircularIndex(prev - 1);
+      const mode = MODES[next];
+      if (mode?.id && onActiveModeChange && (!activeModeId || mode.id !== activeModeId)) {
+        onActiveModeChange(mode.id);
+      }
+      return next;
+    });
+  };
+  const navigateRight = () => {
+    setActiveIndex((prev) => {
+      const next = getCircularIndex(prev + 1);
+      const mode = MODES[next];
+      if (mode?.id && onActiveModeChange && (!activeModeId || mode.id !== activeModeId)) {
+        onActiveModeChange(mode.id);
+      }
+      return next;
+    });
+  };
 
   const handleItemClick = (modeIndex) => {
     if (modeIndex !== activeIndex) {
-      setActiveIndex(modeIndex);
+      setActiveIndexAndNotify(modeIndex);
       return;
     }
     if (onModeSelect) onModeSelect(MODES[modeIndex]);
@@ -306,6 +356,26 @@ export default function FisheyeCarousel({
                                 {mode.id === 'ai-daily' ? (
                                   <div className="relative mb-1">
                                     <h3 className="text-2xl font-black text-center whitespace-nowrap">{t(mode.titleKey)}</h3>
+                                    <div
+                                      role="button"
+                                      tabIndex={0}
+                                      onClick={(e) => {
+                                        e.preventDefault();
+                                        e.stopPropagation();
+                                        setShowAiDailyInfo(true);
+                                      }}
+                                      onKeyDown={(e) => {
+                                        if (e.key !== 'Enter' && e.key !== ' ') return;
+                                        e.preventDefault();
+                                        e.stopPropagation();
+                                        setShowAiDailyInfo(true);
+                                      }}
+                                      className="absolute left-0 top-1/2 -translate-y-[65%] w-5 h-5 rounded-full border border-white/35 bg-white/15 text-white font-black text-[11px] leading-none flex items-center justify-center hover:bg-white/25 transition-all"
+                                      aria-label={t('practiceModeCarousel.aiDailyInfoTitle')}
+                                      title={t('practiceModeCarousel.aiDailyInfoTitle')}
+                                    >
+                                      !
+                                    </div>
                                     <span className="absolute right-0 top-1/2 -translate-y-[65%] pointer-events-none text-[11px] font-black tracking-widest uppercase text-white/95 bg-white/15 border border-white/30 px-2 py-1 rounded-full backdrop-blur-sm">
                                       AI
                                     </span>
@@ -353,6 +423,39 @@ export default function FisheyeCarousel({
             </div>
           </div>
         </div>
+
+        {showAiDailyInfo && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center p-4"
+            onClick={() => setShowAiDailyInfo(false)}
+          >
+            <div className="absolute inset-0 bg-black/50" />
+            <div
+              className="relative w-full max-w-lg bg-white rounded-2xl shadow-2xl border-2 border-cyan-200 overflow-hidden"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="p-5 border-b-2 border-cyan-200 flex items-center justify-between bg-cyan-50">
+                <div className="flex items-center gap-2">
+                  <Sparkles size={20} className="text-cyan-700" />
+                  <h3 className="text-lg font-black text-slate-800">{t('practiceModeCarousel.aiDailyInfoTitle')}</h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowAiDailyInfo(false)}
+                  className="p-2 hover:bg-white rounded-xl transition-all"
+                  aria-label={t('common.close')}
+                >
+                  ×
+                </button>
+              </div>
+              <div className="p-5">
+                <div className="text-sm text-slate-700 leading-relaxed whitespace-pre-wrap">
+                  {t('practiceModeCarousel.aiDailyInfoBody')}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
 
         <motion.div
           key={activeIndex}

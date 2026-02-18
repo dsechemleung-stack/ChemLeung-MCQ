@@ -9,6 +9,7 @@
  */
 
 import { getNow } from '../utils/timeTravel';
+import { formatHKDateKey } from '../utils/hkTime';
 
 // SRS Constants
 const SRS_CONFIG = {
@@ -119,7 +120,7 @@ export function calculateNextInterval(currentState, wasCorrect) {
 export function calculateNextReviewDate(intervalDays, fromDate = new Date()) {
   const nextDate = new Date(fromDate);
   nextDate.setDate(nextDate.getDate() + intervalDays);
-  return nextDate.toISOString().split('T')[0]; // YYYY-MM-DD
+  return formatHKDateKey(nextDate); // YYYY-MM-DD (HK timezone)
 }
 
 /**
@@ -131,7 +132,7 @@ export function calculateNextReviewDate(intervalDays, fromDate = new Date()) {
  */
 export function isCardDue(nextReviewDate, now = new Date()) {
   const reviewDate = new Date(nextReviewDate);
-  const today = new Date(now.toISOString().split('T')[0]); // Strip time
+  const today = new Date(formatHKDateKey(now)); // Strip time using HK date key
   return reviewDate <= today;
 }
 

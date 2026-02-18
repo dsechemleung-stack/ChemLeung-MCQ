@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useLanguage } from '../contexts/LanguageContext';
 import QuestionCard from '../components/QuestionCard';
@@ -9,8 +9,10 @@ export default function QuizPage() {
   const navigate = useNavigate();
   const { t } = useLanguage();
   
-  const questions = quizStorage.getSelectedQuestions();
+  const [questions] = useState(() => quizStorage.getSelectedQuestions());
   const practiceMode = localStorage.getItem('quiz_mode') || 'timed'; // timed, marathon, custom, mistakes
+
+  const isPracticeQuiz = ['timed', 'marathon', 'custom', 'mistakes'].includes(practiceMode);
   
   useEffect(() => {
     if (!questions || questions.length === 0) {
@@ -32,10 +34,39 @@ export default function QuizPage() {
     const saved = localStorage.getItem('quiz_is_timed_mode');
     return saved === 'true';
   });
+  const [hideTimerUi, setHideTimerUi] = useState(() => {
+    const saved = localStorage.getItem('quiz_hide_timer_ui');
+    return saved === 'true';
+  });
   const [questionTimes, setQuestionTimes] = useState(() => quizStorage.getQuestionTimes());
   const [currentQuestionStartTime, setCurrentQuestionStartTime] = useState(null);
   const [currentTime, setCurrentTime] = useState(Date.now());
   const [sessionStartTime, setSessionStartTime] = useState(() => quizStorage.getSessionStart());
+
+  const [showTopic, setShowTopic] = useState(() => {
+    const saved = localStorage.getItem('practice_show_topic');
+    return saved === null ? true : saved === 'true';
+  });
+  const [showSubtopic, setShowSubtopic] = useState(() => {
+    const saved = localStorage.getItem('practice_show_subtopic');
+    return saved === null ? true : saved === 'true';
+  });
+  const [showDseCode, setShowDseCode] = useState(() => {
+    const saved = localStorage.getItem('practice_show_dsecode');
+    return saved === null ? true : saved === 'true';
+  });
+
+  useEffect(() => {
+    localStorage.setItem('practice_show_topic', String(showTopic));
+  }, [showTopic]);
+
+  useEffect(() => {
+    localStorage.setItem('practice_show_subtopic', String(showSubtopic));
+  }, [showSubtopic]);
+
+  useEffect(() => {
+    localStorage.setItem('practice_show_dsecode', String(showDseCode));
+  }, [showDseCode]);
 
   // Calculate time limit for timed mode (questions × 75 seconds in milliseconds)
   const timeLimit = isTimedMode ? questions.length * 75 * 1000 : 0;
@@ -130,7 +161,7 @@ export default function QuizPage() {
 
   // Initialize timer on mount
   useEffect(() => {
-    if (timerEnabled && !sessionStartTime) {
+    if ((timerEnabled || isTimedMode) && !sessionStartTime) {
       const now = Date.now();
       setCurrentQuestionStartTime(now);
       setSessionStartTime(now);
@@ -138,14 +169,14 @@ export default function QuizPage() {
   }, []);
 
   useEffect(() => {
-    if (!timerEnabled) return;
+    if (!timerEnabled && !isTimedMode) return;
     const interval = setInterval(() => setCurrentTime(Date.now()), 1000);
     return () => clearInterval(interval);
-  }, [timerEnabled]);
+  }, [timerEnabled, isTimedMode]);
 
   useEffect(() => {
-    if (timerEnabled && currentQuestion) setCurrentQuestionStartTime(Date.now());
-  }, [currentIndex, timerEnabled]);
+    if ((timerEnabled || isTimedMode) && currentQuestion) setCurrentQuestionStartTime(Date.now());
+  }, [currentIndex, timerEnabled, isTimedMode]);
 
   const recordQuestionTime = () => {
     if (timerEnabled && currentQuestionStartTime) {
@@ -157,9 +188,10 @@ export default function QuizPage() {
     }
   };
 
-  const handleOptionSelect = (option) => {
+  const handleOptionSelect = useCallback((option) => {
+    if (!currentQuestion?.ID) return;
     setAnswers(prev => ({ ...prev, [currentQuestion.ID]: option }));
-  };
+  }, [currentQuestion?.ID]);
 
   const toggleFlag = () => {
     const questionId = currentQuestion.ID;
@@ -319,7 +351,7 @@ export default function QuizPage() {
 
       {/* Desktop Left Sidebar */}
       <div className="hidden md:flex fixed left-8 top-40 flex-col gap-4 z-30 h-[calc(100vh-12rem)]">
-        {timerEnabled && (
+        {timerEnabled && !hideTimerUi && (
           <div className="bg-white rounded-2xl shadow-xl border-2 border-lab-blue p-6 w-48">
             <div className="text-center">
               <div className="flex items-center justify-center gap-2 mb-2">
@@ -430,7 +462,7 @@ export default function QuizPage() {
               <button onClick={() => setShowPeriodicTable(false)} className="text-slate-400 hover:text-slate-600 p-2 rounded-full hover:bg-slate-100"><X size={24} /></button>
             </div>
             <div className="p-4">
-              <img src="https://upload.wikimedia.org/wikipedia/commons/2/2e/Simple_Periodic_Table_Chart-en.svg" alt={t('quiz.periodicTableAlt')} className="w-full h-auto" />
+              <img src="/PeriodicTable.jpg" alt={t('quiz.periodicTableAlt')} className="w-full h-auto" />
             </div>
           </div>
         </div>
@@ -451,7 +483,7 @@ export default function QuizPage() {
           </div>
         </div>
 
-        {timerEnabled && (
+        {timerEnabled && !hideTimerUi && (
           <div className="md:hidden bg-white p-3 rounded-lg shadow-sm border border-slate-200 mb-4">
             <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-2"><Timer className="text-lab-blue" size={18} /><span className="text-sm font-bold text-slate-600">{t('quiz.totalTime')}</span></div>
@@ -475,6 +507,9 @@ export default function QuizPage() {
             question={currentQuestion}
             selectedOption={answers[currentQuestion.ID]}
             onSelect={handleOptionSelect}
+            showTopic={showTopic}
+            showSubtopic={showSubtopic}
+            showDseCode={showDseCode}
           />
         </div>
 

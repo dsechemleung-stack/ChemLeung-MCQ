@@ -1,10 +1,79 @@
 const admin = require('firebase-admin');
 const { onSchedule } = require('firebase-functions/v2/scheduler');
 const { onDocumentCreated, onDocumentUpdated, onDocumentDeleted } = require('firebase-functions/v2/firestore');
+const { onCall, HttpsError } = require('firebase-functions/v2/https');
 const { defineSecret } = require('firebase-functions/params');
 const algoliasearch = require('algoliasearch');
 
 admin.initializeApp();
+
+function encodeKey(value) {
+  const s = value == null ? '' : String(value);
+  return encodeURIComponent(s);
+}
+
+function safeString(value) {
+  return value == null ? '' : String(value);
+}
+
+async function applySrsSummaryDelta(db, userId, dateStr, delta, topic, subtopic) {
+  const uid = safeString(userId);
+  const dateKey = safeString(dateStr);
+  if (!uid || !dateKey || !Number.isFinite(delta) || delta === 0) return;
+
+  const topicKey = encodeKey(topic || '');
+  const subtopicKey = encodeKey(subtopic || '');
+  const hasTopic = Boolean(topicKey);
+  const hasSubtopic = Boolean(topicKey) && Boolean(subtopicKey);
+  const compoundSubKey = hasSubtopic ? `${topicKey}::${subtopicKey}` : '';
+
+  const summaryRef = db.collection('users').doc(uid).collection('srs_daily_summaries').doc(dateKey);
+
+  await db.runTransaction(async (tx) => {
+    const snap = await tx.get(summaryRef);
+    const prev = snap.exists ? (snap.data() || {}) : {};
+
+    const next = { ...prev };
+    next.date = dateKey;
+    next.updatedAt = admin.firestore.FieldValue.serverTimestamp();
+
+    const prevTotal = Number(prev.dueTotal || 0);
+    next.dueTotal = Math.max(0, prevTotal + delta);
+
+    const prevTopics = prev.topicCounts && typeof prev.topicCounts === 'object' ? prev.topicCounts : {};
+    const prevSubs = prev.subtopicCounts && typeof prev.subtopicCounts === 'object' ? prev.subtopicCounts : {};
+
+    const nextTopics = { ...prevTopics };
+    const nextSubs = { ...prevSubs };
+
+    if (hasTopic) {
+      const old = Number(nextTopics[topicKey] || 0);
+      const v = Math.max(0, old + delta);
+      if (v === 0) delete nextTopics[topicKey];
+      else nextTopics[topicKey] = v;
+    }
+
+    if (hasSubtopic) {
+      const old = Number(nextSubs[compoundSubKey] || 0);
+      const v = Math.max(0, old + delta);
+      if (v === 0) delete nextSubs[compoundSubKey];
+      else nextSubs[compoundSubKey] = v;
+    }
+
+    next.topicCounts = nextTopics;
+    next.subtopicCounts = nextSubs;
+
+    tx.set(summaryRef, next, { merge: true });
+  });
+}
+
+function isActiveCard(card) {
+  if (!card || typeof card !== 'object') return false;
+  if (card.isActive === false) return false;
+  if (!card.userId) return false;
+  if (!card.nextReviewDate) return false;
+  return true;
+}
 
 // Define secrets (use new Firebase Functions params API)
 const algoliaAppId = defineSecret('ALGOLIA_APP_ID');
@@ -53,6 +122,193 @@ exports.aggregateCommentQuestionStatsOnCommentCreate = onDocumentCreated(
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       }, { merge: true });
     });
+  }
+);
+
+exports.rebuildSrsDailySummaries = onCall(
+  {
+    region: 'asia-east1',
+  },
+  async (request) => {
+    const uid = request.auth?.uid;
+    if (!uid) {
+      throw new HttpsError('unauthenticated', 'Must be signed in to rebuild summaries');
+    }
+
+    const db = admin.firestore();
+
+    // Page through all active cards for this user
+    const cardsRef = db.collection('spaced_repetition_cards');
+    const pageSize = 500;
+    let last = null;
+    let totalCards = 0;
+
+    // dateStr => { dueTotal, topicCounts, subtopicCounts }
+    const aggregated = new Map();
+
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      let q = cardsRef
+        .where('userId', '==', uid)
+        .where('isActive', '==', true)
+        .orderBy(admin.firestore.FieldPath.documentId())
+        .limit(pageSize);
+
+      if (last) {
+        q = q.startAfter(last);
+      }
+
+      const snap = await q.get();
+      if (snap.empty) break;
+
+      for (const docSnap of snap.docs) {
+        const card = docSnap.data() || {};
+        if (!card.nextReviewDate) continue;
+
+        const dateKey = safeString(card.nextReviewDate);
+        const topicEnc = encodeKey(card.topic || '');
+        const subEnc = encodeKey(card.subtopic || '');
+        const compound = (topicEnc && subEnc) ? `${topicEnc}::${subEnc}` : '';
+
+        if (!aggregated.has(dateKey)) {
+          aggregated.set(dateKey, {
+            date: dateKey,
+            dueTotal: 0,
+            topicCounts: {},
+            subtopicCounts: {},
+          });
+        }
+
+        const entry = aggregated.get(dateKey);
+        entry.dueTotal += 1;
+
+        if (topicEnc) {
+          entry.topicCounts[topicEnc] = (entry.topicCounts[topicEnc] || 0) + 1;
+        }
+        if (compound) {
+          entry.subtopicCounts[compound] = (entry.subtopicCounts[compound] || 0) + 1;
+        }
+      }
+
+      totalCards += snap.size;
+      last = snap.docs[snap.docs.length - 1];
+      if (snap.size < pageSize) break;
+    }
+
+    // Write summaries for encountered dates (overwrite those docs).
+    const summariesRef = db.collection('users').doc(uid).collection('srs_daily_summaries');
+    const dateKeys = Array.from(aggregated.keys()).sort((a, b) => String(a).localeCompare(String(b)));
+
+    let written = 0;
+    for (let i = 0; i < dateKeys.length; i += 400) {
+      const batch = db.batch();
+      const slice = dateKeys.slice(i, i + 400);
+
+      for (const dateKey of slice) {
+        const data = aggregated.get(dateKey);
+        const ref = summariesRef.doc(dateKey);
+        batch.set(ref, {
+          date: data.date,
+          dueTotal: data.dueTotal,
+          topicCounts: data.topicCounts,
+          subtopicCounts: data.subtopicCounts,
+          rebuiltAt: admin.firestore.FieldValue.serverTimestamp(),
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        }, { merge: true });
+      }
+
+      await batch.commit();
+      written += slice.length;
+    }
+
+    return {
+      ok: true,
+      userId: uid,
+      cardsProcessed: totalCards,
+      datesWritten: written,
+    };
+  }
+);
+
+// Maintain SRS daily summaries (cheap calendar counts)
+exports.updateSrsDailySummaryOnCardCreate = onDocumentCreated(
+  {
+    document: 'spaced_repetition_cards/{cardId}',
+    region: 'asia-east1',
+  },
+  async (event) => {
+    const snap = event.data;
+    if (!snap) return;
+    const card = snap.data() || {};
+    if (!isActiveCard(card)) return;
+
+    const db = admin.firestore();
+    await applySrsSummaryDelta(db, card.userId, card.nextReviewDate, 1, card.topic, card.subtopic);
+  }
+);
+
+exports.updateSrsDailySummaryOnCardUpdate = onDocumentUpdated(
+  {
+    document: 'spaced_repetition_cards/{cardId}',
+    region: 'asia-east1',
+  },
+  async (event) => {
+    const before = event.data?.before?.data?.() || {};
+    const after = event.data?.after?.data?.() || {};
+
+    const beforeActive = isActiveCard(before);
+    const afterActive = isActiveCard(after);
+
+    const db = admin.firestore();
+
+    // Removed from active set
+    if (beforeActive && !afterActive) {
+      await applySrsSummaryDelta(db, before.userId, before.nextReviewDate, -1, before.topic, before.subtopic);
+      return;
+    }
+
+    // Added to active set
+    if (!beforeActive && afterActive) {
+      await applySrsSummaryDelta(db, after.userId, after.nextReviewDate, 1, after.topic, after.subtopic);
+      return;
+    }
+
+    if (!beforeActive && !afterActive) return;
+
+    const uid = after.userId || before.userId;
+    const beforeDate = safeString(before.nextReviewDate);
+    const afterDate = safeString(after.nextReviewDate);
+    const beforeTopic = safeString(before.topic);
+    const afterTopic = safeString(after.topic);
+    const beforeSub = safeString(before.subtopic);
+    const afterSub = safeString(after.subtopic);
+
+    const dateChanged = beforeDate !== afterDate;
+    const topicChanged = beforeTopic !== afterTopic;
+    const subChanged = beforeSub !== afterSub;
+
+    if (!dateChanged && !topicChanged && !subChanged) return;
+
+    // Remove old
+    await applySrsSummaryDelta(db, uid, beforeDate, -1, beforeTopic, beforeSub);
+    // Add new
+    await applySrsSummaryDelta(db, uid, afterDate, 1, afterTopic, afterSub);
+  }
+);
+
+exports.updateSrsDailySummaryOnCardDelete = onDocumentDeleted(
+  {
+    document: 'spaced_repetition_cards/{cardId}',
+    region: 'asia-east1',
+  },
+  async (event) => {
+    const snap = event.data;
+    if (!snap) return;
+    const card = snap.data() || {};
+    if (!isActiveCard(card)) return;
+
+    const db = admin.firestore();
+    await applySrsSummaryDelta(db, card.userId, card.nextReviewDate, -1, card.topic, card.subtopic);
   }
 );
 

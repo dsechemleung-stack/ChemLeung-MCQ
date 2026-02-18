@@ -6,6 +6,7 @@ import QuestionForum from './QuestionForum';
 export default function ResultsSummary({ questions, userAnswers, questionTimes, onRestart }) {
   const [showShareReport, setShowShareReport] = useState(false);
   const [forumQuestion, setForumQuestion] = useState(null);
+  const [showChineseExplanation, setShowChineseExplanation] = useState(() => ({}));
 
   // 1. Calculate Score
   const total = questions.length;
@@ -146,6 +147,7 @@ export default function ResultsSummary({ questions, userAnswers, questionTimes, 
         {questions.map((q, index) => {
           const isCorrect = userAnswers[q.ID] === q.CorrectOption;
           const timeSpent = questionTimes ? questionTimes[q.ID] : null;
+          const showCn = !!showChineseExplanation?.[q.ID];
           
           return (
             <div key={q.ID} className={`p-6 rounded-xl border-l-4 bg-white shadow-sm ${isCorrect ? 'border-chemistry-green' : 'border-red-500'}`}>
@@ -195,6 +197,27 @@ export default function ResultsSummary({ questions, userAnswers, questionTimes, 
                     <Info size={14}/> Explanation:
                   </strong>
                   <div dangerouslySetInnerHTML={{ __html: q.Explanation }} className="leading-relaxed text-slate-600" />
+
+                  {q.ChineseExplanation && (
+                    <div className="mt-3">
+                      <button
+                        type="button"
+                        onClick={() => setShowChineseExplanation(prev => ({
+                          ...(prev || {}),
+                          [q.ID]: !prev?.[q.ID]
+                        }))}
+                        className="px-3 py-2 rounded-lg bg-white border border-slate-200 text-slate-700 font-bold hover:bg-slate-50 transition-all"
+                      >
+                        {showCn ? 'Hide Chinese explanation' : 'Show Chinese explanation'}
+                      </button>
+
+                      {showCn && (
+                        <div className="mt-3 p-3 rounded-lg bg-white border border-slate-200">
+                          <div dangerouslySetInnerHTML={{ __html: q.ChineseExplanation }} className="leading-relaxed text-slate-700" />
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
             </div>

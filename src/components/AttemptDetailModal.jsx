@@ -153,6 +153,13 @@ export default function AttemptDetailModal({ attempt, onClose }) {
                 {questions.map((q, index) => {
                   const isCorrect = answers[q.ID] === q.CorrectOption;
                   const timeForQ = questionTimes ? questionTimes[q.ID] : null;
+                  const selected = answers[q.ID] || null;
+                  const opts = [
+                    { key: 'A', text: q.OptionA },
+                    { key: 'B', text: q.OptionB },
+                    { key: 'C', text: q.OptionC },
+                    { key: 'D', text: q.OptionD },
+                  ].filter(o => o.text !== null && o.text !== undefined && String(o.text).trim() !== '');
                   return (
                     <div
                       key={q.ID}
@@ -181,6 +188,27 @@ export default function AttemptDetailModal({ attempt, onClose }) {
                           }
                         </div>
                       </div>
+
+                      {(q.Topic || q.Subtopic || q.DSEcode) && (
+                        <div className="mb-3 flex flex-wrap gap-2 text-xs">
+                          {q.Topic && (
+                            <span className="px-2 py-1 rounded-full bg-blue-50 text-lab-blue border border-blue-100 font-bold">
+                              {q.Topic}
+                            </span>
+                          )}
+                          {q.Subtopic && (
+                            <span className="px-2 py-1 rounded-full bg-slate-50 text-slate-600 border border-slate-200 font-semibold italic">
+                              {q.Subtopic}
+                            </span>
+                          )}
+                          {q.DSEcode && (
+                            <span className="px-2 py-1 rounded-full bg-purple-50 text-purple-700 border border-purple-100 font-bold">
+                              {q.DSEcode}
+                            </span>
+                          )}
+                        </div>
+                      )}
+
                       <div
                         className="prose prose-slate max-w-none mb-3 text-base"
                         dangerouslySetInnerHTML={{ __html: q.Question }}
@@ -190,14 +218,36 @@ export default function AttemptDetailModal({ attempt, onClose }) {
                           <img src={q.Pictureurl} alt="Diagram" className="max-h-[180px] object-contain rounded-lg border border-slate-200" />
                         </div>
                       )}
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mb-3">
-                        <div className={`p-3 rounded-lg text-sm border ${isCorrect ? 'bg-green-50 border-green-200 text-green-800' : 'bg-red-50 border-red-200 text-red-800'}`}>
-                          <strong>Your Answer:</strong> {answers[q.ID] || 'None'}
+
+                      {opts.length > 0 && (
+                        <div className="grid grid-cols-1 gap-2 mb-3">
+                          {opts.map((opt) => {
+                            const isSelected = selected === opt.key;
+                            const isCorrectOpt = q.CorrectOption === opt.key;
+                            return (
+                              <div
+                                key={opt.key}
+                                className={`flex items-start gap-3 p-3 rounded-lg border text-sm ${
+                                  isCorrectOpt
+                                    ? 'bg-emerald-50 border-emerald-200'
+                                    : isSelected
+                                      ? 'bg-rose-50 border-rose-200'
+                                      : 'bg-white border-slate-200'
+                                }`}
+                              >
+                                <div className="w-8 h-8 flex-shrink-0 flex items-center justify-center rounded-md font-black bg-slate-100 text-slate-600">
+                                  {opt.key}
+                                </div>
+                                <div
+                                  className="flex-1 whitespace-pre-wrap prose prose-slate max-w-none"
+                                  dangerouslySetInnerHTML={{ __html: String(opt.text) }}
+                                />
+                              </div>
+                            );
+                          })}
                         </div>
-                        <div className="p-3 rounded-lg bg-blue-50 border border-blue-200 text-blue-800 text-sm">
-                          <strong>Correct:</strong> {q.CorrectOption}
-                        </div>
-                      </div>
+                      )}
+
                       {q.Explanation && (
                         <div className="p-3 bg-slate-50 rounded-lg text-sm border border-slate-200">
                           <strong className="block mb-1 text-slate-700 flex items-center gap-1">

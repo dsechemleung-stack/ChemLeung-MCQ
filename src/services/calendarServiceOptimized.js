@@ -24,6 +24,7 @@ import {
   writeBatch
 } from 'firebase/firestore';
 import { performanceService } from './performanceService';
+import { formatHKDateKey, makeHKDate } from '../utils/hkTime';
 
 export const EVENT_TYPES = {
   MAJOR_EXAM: 'major_exam',
@@ -33,6 +34,14 @@ export const EVENT_TYPES = {
   AI_RECOMMENDATION: 'ai_recommendation',
   COMPLETION: 'completion'
 };
+
+const CALENDAR_EVENT_TYPES_FOR_MONTH_VIEW = [
+  EVENT_TYPES.MAJOR_EXAM,
+  EVENT_TYPES.SMALL_QUIZ,
+  EVENT_TYPES.STUDY_SUGGESTION,
+  EVENT_TYPES.AI_RECOMMENDATION,
+  EVENT_TYPES.COMPLETION,
+];
 
 // Client-side cache for calendar data
 const calendarCache = new Map();
@@ -140,29 +149,45 @@ export async function getCalendarData(userId, year, month) {
     }
   }
 
-  const startDate = new Date(year, month, 1);
-  const endDate = new Date(year, month + 1, 0);
-  
-  const startDateStr = startDate.toISOString().split('T')[0];
-  const endDateStr = endDate.toISOString().split('T')[0];
+  const startDateStr = formatHKDateKey(makeHKDate(year, month, 1));
+  const endDateStr = formatHKDateKey(makeHKDate(year, month + 1, 0));
 
   console.log('📅 Loading calendar for:', { userId, year, month, startDateStr, endDateStr });
 
   // ✅ OPTIMIZED: Query user's subcollection instead of global collection
   const eventsQuery = query(
     collection(db, 'users', userId, 'calendar_events'),  // User-specific subcollection
+    where('type', 'in', CALENDAR_EVENT_TYPES_FOR_MONTH_VIEW),
     where('date', '>=', startDateStr),
     where('date', '<=', endDateStr)
   );
 
-  const eventsSnapshot = await getDocs(eventsQuery);
+  const settled = await Promise.allSettled([
+    getDocs(eventsQuery),
+    getDocs(query(
+      collection(db, 'users', userId, 'srs_daily_summaries'),
+      where('date', '>=', startDateStr),
+      where('date', '<=', endDateStr)
+    ))
+  ]);
+
+  const eventsSnapshot = settled[0].status === 'fulfilled' ? settled[0].value : null;
+  const srsSummarySnapshot = settled[1].status === 'fulfilled' ? settled[1].value : null;
+
+  if (settled[0].status === 'rejected') {
+    console.error('❌ Calendar events query failed:', settled[0].reason);
+  }
+  if (settled[1].status === 'rejected') {
+    console.error('❌ SRS summary query failed:', settled[1].reason);
+  }
   
-  console.log('📊 Found', eventsSnapshot.size, 'events for user', userId);
+  console.log('📊 Found', eventsSnapshot?.size || 0, 'events for user', userId);
+  console.log('🧠 Found', srsSummarySnapshot?.size || 0, 'SRS daily summaries for month');
 
   // Organize by date
   const calendarData = {};
 
-  eventsSnapshot.forEach(doc => {
+  (eventsSnapshot?.docs || []).forEach(doc => {
     const event = { id: doc.id, ...doc.data() };
     
     if (!calendarData[event.date]) {
@@ -171,6 +196,7 @@ export async function getCalendarData(userId, year, month) {
         quizzes: [],
         suggestions: [],
         repetitions: [],
+        srsSummary: null,
         aiRecommendations: [],
         completions: []
       };
@@ -183,13 +209,32 @@ export async function getCalendarData(userId, year, month) {
       calendarData[event.date].quizzes.push(event);
     } else if (event.type === EVENT_TYPES.STUDY_SUGGESTION) {
       calendarData[event.date].suggestions.push(event);
-    } else if (event.type === EVENT_TYPES.SPACED_REPETITION) {
-      calendarData[event.date].repetitions.push(event);
     } else if (event.type === EVENT_TYPES.AI_RECOMMENDATION) {
       calendarData[event.date].aiRecommendations.push(event);
     } else if (event.type === EVENT_TYPES.COMPLETION) {
       calendarData[event.date].completions.push(event);
     }
+  });
+
+  // Attach SRS summaries (cheap counts for calendar; no per-question docs)
+  (srsSummarySnapshot?.docs || []).forEach((docSnap) => {
+    const summary = { id: docSnap.id, ...docSnap.data() };
+    const dateKey = summary.date || docSnap.id;
+    if (!dateKey) return;
+
+    if (!calendarData[dateKey]) {
+      calendarData[dateKey] = {
+        exams: [],
+        quizzes: [],
+        suggestions: [],
+        repetitions: [],
+        srsSummary: null,
+        aiRecommendations: [],
+        completions: [],
+      };
+    }
+
+    calendarData[dateKey].srsSummary = summary;
   });
 
   // Cache the result

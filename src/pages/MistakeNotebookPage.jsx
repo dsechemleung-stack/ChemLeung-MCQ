@@ -444,8 +444,8 @@ function InfoIconButton({ title, body, onOpenModal, hoverCapable }) {
 
       {showTooltip && (
         <div className="absolute left-0 top-full mt-2 w-64 max-w-[calc(100vw-2rem)] bg-white border border-slate-200 shadow-lg rounded-xl p-3 text-xs text-slate-700 z-[90] break-words">
-          <div className="font-black text-slate-800 mb-1">{title}</div>
-          <div className="text-slate-600 leading-relaxed">{body}</div>
+          <div className="font-bold text-slate-800 mb-1 normal-case">{title}</div>
+          <div className="text-slate-600 leading-relaxed normal-case">{body}</div>
         </div>
       )}
     </span>
@@ -465,10 +465,10 @@ function FilterInfoModal({ onClose }) {
         <div className="p-6">
           <div className="flex items-start justify-between gap-4">
             <div className="flex-1">
-              <div className="text-lg font-black text-slate-800">
+              <div className="text-lg font-bold text-slate-800 normal-case">
                 {t('notebook.filterInfoTitle')}
               </div>
-              <div className="text-sm text-slate-600 mt-2 leading-relaxed">
+              <div className="text-sm text-slate-600 mt-2 leading-relaxed normal-case">
                 {t('notebook.filterInfoBody')}
               </div>
             </div>
@@ -1187,7 +1187,7 @@ export default function MistakeNotebookPage({ questions = [] }) {
   const [isTimedMode, setIsTimedMode] = useState(false);
   
   // UI state
-  const [activeTab, setActiveTab] = useState('deck');
+  const [activeTab, setActiveTab] = useState('analytics');
   const [archiveSubTab, setArchiveSubTab] = useState('mastery');
   const [hoverCapable, setHoverCapable] = useState(true);
   const [viewMode, setViewMode] = useState('list');
@@ -1918,16 +1918,16 @@ export default function MistakeNotebookPage({ questions = [] }) {
       </AnimatePresence>
 
       
-      {/* ═══════════════════════════════════════════════════════════════════════════════
-          SIDEBAR: Practice Configurator
-          ═══════════════════════════════════════════════════════════════════════════════ */}
-      
-      <div className="w-full md:w-80 bg-white border-b md:border-b-0 md:border-r border-slate-200 flex flex-col">
-        {/* Header */}
-        <div className="p-3 border-b border-slate-200 flex items-center gap-2">
-          <button
-            onClick={() => navigate('/dashboard')}
-            className="p-2 hover:bg-slate-100 rounded-lg transition-all"
+      		{/* ══════════════════════════════════════════════════════════════════════════════
+			SIDEBAR: Practice Configurator
+			══════════════════════════════════════════════════════════════════════════════ */}
+		
+		<div className="w-full md:w-80 bg-white border-b md:border-b-0 md:border-r border-slate-200 flex flex-col min-h-0 md:sticky md:top-20 md:max-h-[calc(100vh-5rem)] overflow-hidden">
+			{/* Header */}
+			<div className="p-3 border-b border-slate-200 flex items-center gap-2">
+				<button
+					onClick={() => navigate('/dashboard')}
+					className="p-2 hover:bg-slate-100 rounded-lg transition-all"
             title="Back to Dashboard"
           >
             <ArrowLeft size={20} className="text-slate-700" />
@@ -1939,20 +1939,20 @@ export default function MistakeNotebookPage({ questions = [] }) {
         </div>
         
         {/* Configurator */}
-        <div className="flex-1 p-3 space-y-4 overflow-y-auto">
+        <div className="flex-1 p-3 space-y-4 overflow-y-auto min-h-0">
           {/* Question Count */}
           <div>
             <label className="text-xs font-black text-slate-600 uppercase tracking-widest mb-2 flex items-center gap-1">
               <Hash size={12} />
               {t('notebook.numberOfQuestions')}
             </label>
-            <div className="grid grid-cols-3 gap-1">
-              {['5', '10', '15', '20', '30', 'All'].map((num) => (
+            <div className="flex flex-wrap items-center gap-2">
+              {['5', '10', '15', '20', 'All'].map((num) => (
                 <button
                   key={num}
                   onClick={() => setQuestionCount(num)}
                   disabled={num !== 'All' && parseInt(num) > filteredMistakes.length}
-                  className={`py-2 rounded-lg border text-xs font-bold transition-all ${
+                  className={`px-3 py-1.5 rounded-lg border text-xs font-bold transition-all ${
                     questionCount === num
                       ? 'border-indigo-500 bg-indigo-50 text-indigo-600'
                       : 'border-slate-200 text-slate-500 hover:border-slate-300 disabled:opacity-30'
@@ -1961,63 +1961,83 @@ export default function MistakeNotebookPage({ questions = [] }) {
                   {num}
                 </button>
               ))}
+              <div className="flex items-center gap-1">
+                <span className="text-xs text-slate-500">Custom:</span>
+                <input
+                  type="number"
+                  min="1"
+                  max={filteredMistakes.length || 1}
+                  value={questionCount === 'All' || ['5','10','15','20'].includes(questionCount) ? '' : questionCount}
+                  onChange={(e) => {
+                    const val = parseInt(e.target.value);
+                    if (val && val > 0) {
+                      setQuestionCount(String(Math.min(val, filteredMistakes.length)));
+                    }
+                  }}
+                  placeholder="___"
+                  className="w-14 px-2 py-1.5 rounded-lg border border-slate-200 text-xs font-bold text-center focus:border-indigo-500 focus:outline-none"
+                />
+              </div>
             </div>
           </div>
           
-          {/* Date Range */}
-          <div>
-            <label className="text-xs font-black text-slate-600 uppercase tracking-widest mb-2 flex items-center gap-1">
-              <Calendar size={12} />
-              {t('notebook.timeRange')}
-            </label>
-            <div className="space-y-1">
-              {[
-                { value: 'all',   label: t('notebook.allTime') },
-                { value: 'month', label: t('notebook.lastMonth') },
-                { value: 'week',  label: t('notebook.lastWeek') },
-              ].map((o) => (
-                <button
-                  key={o.value}
-                  onClick={() => setDatePeriod(o.value)}
-                  className={`w-full px-3 py-2 rounded-lg border text-xs font-bold text-left transition-all ${
-                    datePeriod === o.value
-                      ? 'border-indigo-500 bg-indigo-50 text-indigo-700'
-                      : 'border-slate-200 text-slate-600 hover:border-slate-300'
-                  }`}
-                >
-                  {o.label}
-                </button>
-              ))}
-            </div>
-          </div>
-          
-          {/* Mastery Level */}
-          <div>
-            <label className="text-xs font-black text-slate-600 uppercase tracking-widest mb-2">
-              {t('notebook.masteryLevel')}
-            </label>
-            <div className="space-y-1">
-              {Object.entries(MASTERY_LEVELS).map(([key, lvl]) => {
-                const count = mistakes.filter((m) => {
-                  const ic = m.improvementCount ?? 0;
-                  return ic >= lvl.min && ic <= lvl.max;
-                }).length;
-                
-                return (
+          {/* Time Range & Mastery Level - Horizontal */}
+          <div className="grid grid-cols-2 gap-3">
+            {/* Date Range */}
+            <div>
+              <label className="text-xs font-black text-slate-600 uppercase tracking-widest mb-2 flex items-center gap-1">
+                <Calendar size={12} />
+                {t('notebook.timeRange')}
+              </label>
+              <div className="space-y-1">
+                {[
+                  { value: 'all',   label: t('notebook.allTime') },
+                  { value: 'month', label: t('notebook.lastMonth') },
+                  { value: 'week',  label: t('notebook.lastWeek') },
+                ].map((o) => (
                   <button
-                    key={key}
-                    onClick={() => toggleMasteryLevel(key)}
-                    className={`w-full text-left px-3 py-2 rounded-lg border-2 font-bold text-sm transition-all flex items-center justify-between ${
-                      selectedMasteryLevels.includes(key)
-                        ? `bg-${lvl.color}-50 border-${lvl.color}-400 text-${lvl.color}-800`
-                        : `bg-white border-${lvl.color}-200 text-${lvl.color}-700`
+                    key={o.value}
+                    onClick={() => setDatePeriod(o.value)}
+                    className={`w-full px-2 py-1.5 rounded-lg border text-[11px] font-bold text-left transition-all ${
+                      datePeriod === o.value
+                        ? 'border-indigo-500 bg-indigo-50 text-indigo-700'
+                        : 'border-slate-200 text-slate-600 hover:border-slate-300'
                     }`}
                   >
-                    {t(lvl.labelKey)}
-                    <span className="ml-1 opacity-70">({count})</span>
+                    {o.label}
                   </button>
-                );
-              })}
+                ))}
+              </div>
+            </div>
+            
+            {/* Mastery Level */}
+            <div>
+              <label className="text-xs font-black text-slate-600 uppercase tracking-widest mb-2">
+                {t('notebook.masteryLevel')}
+              </label>
+              <div className="space-y-1">
+                {Object.entries(MASTERY_LEVELS).map(([key, lvl]) => {
+                  const count = mistakes.filter((m) => {
+                    const ic = m.improvementCount ?? 0;
+                    return ic >= lvl.min && ic <= lvl.max;
+                  }).length;
+                  
+                  return (
+                    <button
+                      key={key}
+                      onClick={() => toggleMasteryLevel(key)}
+                      className={`w-full text-left px-2 py-1.5 rounded-lg border-2 font-bold text-[11px] transition-all flex items-center justify-between ${
+                        selectedMasteryLevels.includes(key)
+                          ? `bg-${lvl.color}-50 border-${lvl.color}-400 text-${lvl.color}-800`
+                          : `bg-white border-${lvl.color}-200 text-${lvl.color}-700`
+                      }`}
+                    >
+                      {t(lvl.labelKey)}
+                      <span className="ml-1 opacity-70">({count})</span>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
           </div>
           
@@ -2083,44 +2103,44 @@ export default function MistakeNotebookPage({ questions = [] }) {
               </div>
             </div>
           )}
-          
-          {/* Timer Settings */}
-          <div className="space-y-2 pt-2 border-t border-slate-200">
+        </div>
+
+        {/* Fixed Timer Settings */}
+        <div className="p-3 border-t border-slate-200 bg-white flex-shrink-0 space-y-2">
+          <button
+            onClick={() => setTimerEnabled(!timerEnabled)}
+            className={`w-full px-3 py-2 rounded-lg text-xs font-bold border transition-all text-left flex items-center justify-between ${
+              timerEnabled
+                ? 'bg-green-600 border-green-600 text-white'
+                : 'bg-white border-slate-200 text-slate-600'
+            }`}
+          >
+            <span className="flex items-center gap-1">
+              <Clock size={12} />
+              {t('notebook.timerEnabled')}
+            </span>
+            {timerEnabled && <Check size={14} />}
+          </button>
+          {timerEnabled && (
             <button
-              onClick={() => setTimerEnabled(!timerEnabled)}
+              onClick={() => setIsTimedMode(!isTimedMode)}
               className={`w-full px-3 py-2 rounded-lg text-xs font-bold border transition-all text-left flex items-center justify-between ${
-                timerEnabled
-                  ? 'bg-green-600 border-green-600 text-white'
+                isTimedMode
+                  ? 'bg-amber-600 border-amber-600 text-white'
                   : 'bg-white border-slate-200 text-slate-600'
               }`}
             >
               <span className="flex items-center gap-1">
-                <Clock size={12} />
-                {t('notebook.timerEnabled')}
+                <Zap size={12} />
+                {t('notebook.timedMode')}
               </span>
-              {timerEnabled && <Check size={14} />}
+              {isTimedMode && <Check size={14} />}
             </button>
-            {timerEnabled && (
-              <button
-                onClick={() => setIsTimedMode(!isTimedMode)}
-                className={`w-full px-3 py-2 rounded-lg text-xs font-bold border transition-all text-left flex items-center justify-between ${
-                  isTimedMode
-                    ? 'bg-amber-600 border-amber-600 text-white'
-                    : 'bg-white border-slate-200 text-slate-600'
-                }`}
-              >
-                <span className="flex items-center gap-1">
-                  <Zap size={12} />
-                  {t('notebook.timedMode')}
-                </span>
-                {isTimedMode && <Check size={14} />}
-              </button>
-            )}
-          </div>
+          )}
         </div>
         
         {/* Practice Button */}
-        <div className="p-3 border-t border-slate-200 bg-white">
+        <div className="p-3 border-t border-slate-200 bg-white flex-shrink-0">
           <button
             onClick={handlePracticeMistakes}
             disabled={filteredMistakes.length === 0}
@@ -2144,7 +2164,7 @@ export default function MistakeNotebookPage({ questions = [] }) {
           MAIN WORKSPACE: Tabbed Interface
           ═══════════════════════════════════════════════════════════════════════════════ */}
       
-      <div className="flex-1 flex flex-col">
+      <div className="flex-1 flex flex-col min-h-0">
         {/* Tab Navigation */}
         <div className="bg-white border-b border-slate-200 p-3 sm:p-4">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
@@ -2238,7 +2258,7 @@ export default function MistakeNotebookPage({ questions = [] }) {
         </div>
         
         {/* Tab Content */}
-        <div className="flex-1 p-3 sm:p-6">
+        <div className="flex-1 p-3 sm:p-6 overflow-y-auto min-h-0">
           <AnimatePresence mode="wait">
             {/* Tab 1: Learning Insights */}
             {activeTab === 'analytics' && mistakes.length > 0 && (

@@ -6,10 +6,21 @@ import { EVENT_TYPES } from '../../services/calendarServiceOptimized';
 import { performanceService } from '../../services/performanceService';
 import { quizStorage } from '../../utils/quizStorage';
 import { motion, AnimatePresence } from 'framer-motion';
-import SpacedRepetitionModal from './SpacedRepetitionModal';
 import { useLanguage } from '../../contexts/LanguageContext';
 import { formatHKDateKey, getHKYearMonth, getHKWeekdayIndex, makeHKDate, parseHKDateKey, HK_TIME_ZONE } from '../../utils/hkTime';
 import { getNow } from '../../utils/timeTravel';
+import { calendarService } from '../../services/calendarService';
+
+const SRS_REVIEW_SESSION_STORAGE_KEY = 'srs_review_cache_v1';
+
+function formatDM(dateStr) {
+  const s = String(dateStr || '');
+  const parts = s.split('-');
+  if (parts.length !== 3) return s;
+  const d = String(Number(parts[2]));
+  const m = String(Number(parts[1]));
+  return `${d}/${m}`;
+}
 
 /**
  * SmartMonthlyCalendar - COMPLETE FIX
@@ -33,7 +44,6 @@ export default function SmartMonthlyCalendar({ userId, questions = [], onAddEven
   const [hoveredDate, setHoveredDate] = useState(null);
   const [aiRecommendations, setAIRecommendations] = useState([]);
   const [suggestionPreview, setSuggestionPreview] = useState(null);
-  const [reviewModal, setReviewModal] = useState(null);
   const [showInfo, setShowInfo] = useState(false);
   const [showSrsInfo, setShowSrsInfo] = useState(false);
   const [showAiInfo, setShowAiInfo] = useState(false);
@@ -48,11 +58,26 @@ export default function SmartMonthlyCalendar({ userId, questions = [], onAddEven
     loadAIRecommendations();
   }, [userId, year, monthIndex]);
 
+  useEffect(() => {
+    const onRefresh = () => {
+      try {
+        calendarServiceOptimized.clearCalendarCache?.();
+      } catch {
+        // ignore
+      }
+      loadCalendarData();
+    };
+
+    window.addEventListener('calendar:refresh', onRefresh);
+    return () => window.removeEventListener('calendar:refresh', onRefresh);
+  }, [userId, year, monthIndex]);
+
   async function loadCalendarData() {
     if (!userId) return;
     
     try {
       setLoading(true);
+
       const data = await calendarServiceOptimized.getCalendarData(userId, year, monthIndex);
       console.log('📅 Calendar data loaded:', data);
       setCalendarData(data);
@@ -309,61 +334,14 @@ export default function SmartMonthlyCalendar({ userId, questions = [], onAddEven
     }
   }
 
-  function handleSpacedRepetitionClick(repetition, event) {
+  function handleSpacedRepetitionClick(dateStr, event) {
     event?.stopPropagation();
-    
-    const dateStr = repetition.date;
-    const allRepsForDay = calendarData[dateStr]?.repetitions || [];
-    
-    console.log('🔍 Opening review modal:', {
-      clickedRep: repetition,
-      dateStr,
-      totalRepsForDay: allRepsForDay.length
-    });
-    
-    if (!questions || questions.length === 0) {
-      alert(t('calendar.questionsStillLoading'));
-      return;
-    }
-    
-    if (allRepsForDay.length === 0) {
-      console.warn('⚠️ No repetitions found for date:', dateStr);
+    if (!dateStr) {
       alert(t('calendar.noReviewSessionsFoundForDay'));
       return;
     }
-    
-    setReviewModal({
-      repetition,
-      allRepetitions: allRepsForDay,
-      dateStr
-    });
-  }
 
-  async function handleStartReview(reviewMode, questionIds) {
-    try {
-      const reviewQuestions = questions.filter(q => questionIds.includes(q.ID));
-      
-      if (reviewQuestions.length === 0) {
-        alert(t('calendar.questionsNotFound'));
-        return;
-      }
-
-      quizStorage.clearQuizData();
-      quizStorage.saveSelectedQuestions(reviewQuestions);
-      localStorage.setItem('quiz_mode', 'spaced-repetition');
-      localStorage.setItem('quiz_review_mode', reviewMode);
-      localStorage.setItem('quiz_event_ids', JSON.stringify(
-        reviewModal.allRepetitions
-          .filter(r => questionIds.includes(r.questionId))
-          .map(r => r.id)
-      ));
-      localStorage.setItem('quiz_timer_enabled', 'true');
-      setReviewModal(null);
-      navigate('/quiz');
-    } catch (error) {
-      console.error('Error starting review:', error);
-      alert(t('calendar.failedStartReviewTryAgain'));
-    }
+    navigate(`/srs-review?date=${encodeURIComponent(dateStr)}`);
   }
 
   async function handleDeleteEvent(eventId, eventType, event) {
@@ -496,29 +474,24 @@ export default function SmartMonthlyCalendar({ userId, questions = [], onAddEven
             </button>
           ))}
           
-          {/* Spaced Repetition - GREEN if completed */}
-          {events?.repetitions?.slice(0, 1).map((rep, idx) => {
-            const isOverdueRep = !rep.completed && rep.date && rep.date < today;
-            return (
-              <button
-                key={`rep-${idx}`}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  rep.completed ? setSelectedDate(dateStr) : handleSpacedRepetitionClick(rep, e);
-                }}
-                className={`flex items-center gap-1 text-xs px-1.5 py-0.5 rounded font-semibold transition-colors ${
-                  rep.completed
-                    ? 'bg-green-100 text-green-700 border border-green-300'
-                    : isOverdueRep
-                      ? 'bg-red-100 text-red-700 hover:bg-red-200'
-                      : 'bg-purple-100 text-purple-700 hover:bg-purple-200'
-                }`}
-              >
-                {rep.completed ? <CheckCircle size={10} className="text-green-600" /> : <Brain size={10} />}
-                <span className="truncate flex-1">{t('calendar.review')}</span>
-              </button>
-            );
-          })}
+          {/* Spaced Repetition summary (cheap counts) */}
+          {events?.srsSummary?.dueTotal > 0 && (
+            <button
+              key={`srs-${dateStr}`}
+              onClick={(e) => {
+                e.stopPropagation();
+                handleSpacedRepetitionClick(dateStr, e);
+              }}
+              className={`flex items-center gap-1 text-xs px-1.5 py-0.5 rounded font-semibold transition-colors ${
+                dateStr < today
+                  ? 'bg-red-100 text-red-700 hover:bg-red-200'
+                  : 'bg-purple-100 text-purple-700 hover:bg-purple-200'
+              }`}
+            >
+              <Brain size={10} />
+              <span className="truncate flex-1">SRS review ({formatDM(dateStr)}) • {events.srsSummary.dueTotal}</span>
+            </button>
+          )}
 
           {/* AI Recommendations - GREEN if completed */}
           {events?.aiRecommendations?.slice(0, 1).map((aiRec, idx) => (
@@ -1110,7 +1083,7 @@ export default function SmartMonthlyCalendar({ userId, questions = [], onAddEven
 
                 {/* Other events below completions */}
                 {(selectedDayData.exams || selectedDayData.quizzes || 
-                  selectedDayData.suggestions || selectedDayData.repetitions || selectedDayData.aiRecommendations) && (
+                  selectedDayData.suggestions || selectedDayData.srsSummary || selectedDayData.aiRecommendations) && (
                   <div className="space-y-3 pt-3 border-t-2">
                     <h4 className="font-bold text-slate-700 text-sm">{t('calendar.scheduledEvents')}</h4>
                     
@@ -1240,48 +1213,29 @@ export default function SmartMonthlyCalendar({ userId, questions = [], onAddEven
                       </div>
                     )}
 
-                    {selectedDayData.repetitions?.length > 0 && (
+                    {selectedDayData.srsSummary?.dueTotal > 0 && (
                       <div className="space-y-2">
-                        {selectedDayData.repetitions.map((rep) => (
-                          <button
-                            key={rep.id}
-                            onClick={(e) => {
-                              if (rep.completed) return;
-                              handleSpacedRepetitionClick(rep, e);
-                            }}
-                            className={`w-full text-left p-4 rounded-xl border-2 transition-all ${
-                              rep.completed
-                                ? 'bg-green-50 border-green-200 cursor-default'
-                                : (rep.date && rep.date < today)
-                                  ? 'bg-red-50 border-red-200 hover:shadow-sm'
-                                  : 'bg-purple-50 border-purple-200 hover:shadow-sm'
-                            }`}
-                          >
-                            <div className="flex items-start justify-between gap-3">
-                              <div className="min-w-0">
-                                <div className="flex items-center gap-2">
-                                  {rep.completed
-                                    ? <CheckCircle size={18} className="text-green-700" fill="currentColor" />
-                                    : <Brain size={18} className="text-purple-700" />
-                                  }
-                                  <div className="font-black text-slate-800 truncate">{t('calendar.review')}</div>
-                                </div>
-                                <div className="text-xs text-slate-600 mt-1 font-semibold">
-                                  {rep.topic ? rep.topic : ''}
-                                  {rep.subtopic ? ` → ${rep.subtopic}` : ''}
-                                  {rep.questionId ? ` • Q${rep.questionId}` : ''}
-                                </div>
+                        <button
+                          onClick={(e) => handleSpacedRepetitionClick(selectedDate, e)}
+                          className={`w-full text-left p-4 rounded-xl border-2 transition-all ${
+                            selectedDate < today
+                              ? 'bg-red-50 border-red-200 hover:shadow-sm'
+                              : 'bg-purple-50 border-purple-200 hover:shadow-sm'
+                          }`}
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2">
+                                <Brain size={18} className={selectedDate < today ? 'text-red-700' : 'text-purple-700'} />
+                                <div className="font-black text-slate-800 truncate">SRS review ({formatDM(selectedDate)}) • {selectedDayData.srsSummary.dueTotal}</div>
                               </div>
-
-                              {!rep.completed && (
-                                <div className="shrink-0 text-xs font-black text-purple-700 flex items-center gap-1">
-                                  <Play size={14} fill="currentColor" />
-                                  Start
-                                </div>
-                              )}
                             </div>
-                          </button>
-                        ))}
+                            <div className="shrink-0 text-xs font-black text-purple-700 flex items-center gap-1">
+                              <Play size={14} fill="currentColor" />
+                              Start
+                            </div>
+                          </div>
+                        </button>
                       </div>
                     )}
 
@@ -1333,7 +1287,7 @@ export default function SmartMonthlyCalendar({ userId, questions = [], onAddEven
                       (selectedDayData.exams?.length || 0) === 0 &&
                       (selectedDayData.quizzes?.length || 0) === 0 &&
                       (selectedDayData.suggestions?.length || 0) === 0 &&
-                      (selectedDayData.repetitions?.length || 0) === 0 &&
+                      (selectedDayData.srsSummary?.dueTotal || 0) === 0 &&
                       (selectedDayData.aiRecommendations?.length || 0) === 0 && (
                       <div className="p-6 rounded-xl border-2 border-slate-200 bg-slate-50 text-slate-600 text-sm font-semibold">
                         {t('calendar.noEventsScheduled')}
@@ -1347,14 +1301,6 @@ export default function SmartMonthlyCalendar({ userId, questions = [], onAddEven
         )}
       </AnimatePresence>
 
-      {reviewModal && (
-        <SpacedRepetitionModal
-          userId={userId}
-          questions={questions}
-          onClose={() => setReviewModal(null)}
-          onStartReview={handleStartReview}
-        />
-      )}
     </div>
   );
 }

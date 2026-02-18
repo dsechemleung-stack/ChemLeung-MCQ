@@ -69,9 +69,10 @@ export default function ChemLeungModal({ explanation, onClose }) {
                 <User className="text-white" size={20} />
               </div>
               <div className="bg-slate-800 rounded-2xl rounded-tl-none px-5 py-4 border-2 border-green-500/30 shadow-lg">
-                <p className="text-white leading-relaxed text-lg">
-                  {explanation || t('millionaire.chemLeung.defaultAnalysis')}
-                </p>
+                <div
+                  className="text-white leading-relaxed text-lg"
+                  dangerouslySetInnerHTML={{ __html: explanation || t('millionaire.chemLeung.defaultAnalysis') }}
+                />
                 <div className="mt-3 pt-3 border-t border-slate-700 text-sm text-slate-400">
                   {t('millionaire.chemLeung.remember')}
                 </div>

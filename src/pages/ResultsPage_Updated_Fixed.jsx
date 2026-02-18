@@ -34,6 +34,11 @@ export default function ResultsPage() {
   const questions = quizStorage.getSelectedQuestions();
   const userAnswers = quizStorage.getUserAnswers();
   const questionTimes = quizStorage.getQuestionTimes();
+  
+  // Generate attempt key AFTER userAnswers is defined
+  const attemptKey = userAnswers && Object.keys(userAnswers).length > 0 
+    ? `quiz_saved_${Object.keys(userAnswers).sort().join('_')}` 
+    : null;
 
   useEffect(() => {
     if (!questions || questions.length === 0 || Object.keys(userAnswers).length === 0) {
@@ -61,6 +66,13 @@ export default function ResultsPage() {
       if (hasSavedRef.current) return;
       if (!currentUser || !questions || questions.length === 0) return;
       if (Object.keys(userAnswers).length === 0) return;
+      
+      // CRITICAL: Check sessionStorage to prevent double-submit on refresh
+      if (attemptKey && sessionStorage.getItem(attemptKey)) {
+        console.log('⚠️ Attempt already saved (sessionStorage), skipping duplicate save');
+        setSaved(true);
+        return;
+      }
 
       hasSavedRef.current = true;
       setSaving(true);
@@ -290,6 +302,12 @@ export default function ResultsPage() {
         }
 
         setSaved(true);
+        
+        // Mark as saved in sessionStorage to prevent double-submit on refresh
+        if (attemptKey) {
+          sessionStorage.setItem(attemptKey, 'true');
+        }
+        
         console.log('🎉 Save complete!');
 
       } catch (error) {
